@@ -76,20 +76,32 @@ async function fetchStoreMetadata(id: string, store: string) {
 
     if (store === 'chrome') {
       // Chrome Web Store (Modern)
-      const ratingMatch = html.match(/aria-label="Rated ([0-9.]+) out of 5 stars/);
+      const ratingMatch = html.match(/aria-label="Rated ([0-9.]+) out of 5 stars/) ||
+                          html.match(/aria-label="Average rating ([0-9.]+) out of 5 stars/) ||
+                          html.match(/([0-9.]+) out of 5 stars/);
       if (ratingMatch) metadata.rating = parseFloat(ratingMatch[1]);
 
-      const ratingCountMatch = html.match(/([0-9,.]+) ratings/);
+      const ratingCountMatch = html.match(/([0-9,.]+) ratings/) ||
+                               html.match(/([0-9,.]+) reviews/);
       if (ratingCountMatch) metadata.ratingCount = parseInt(ratingCountMatch[1].replace(/,/g, ''));
 
-      const userCountMatch = html.match(/([0-9,.]+)\+? users/);
+      const userCountMatch = html.match(/([0-9,.]+)\+? users/) ||
+                             html.match(/([0-9,.]+)\+? weekly active users/);
       if (userCountMatch) metadata.userCount = userCountMatch[1] + '+';
 
-      const dateMatch = html.match(/Updated ([A-Za-z]+ [0-9]+, [0-9]{4})/);
+      const dateMatch = html.match(/Updated\s+([A-Za-z]+ [0-9]+, [0-9]{4})/) ||
+                        html.match(/Updated:?\s*([A-Za-z]+ [0-9]+, [0-9]{4})/);
       if (dateMatch) metadata.lastUpdated = dateMatch[1];
 
-      const pubMatch = html.match(/itemprop="author".*?><span.*?>(.*?)<\/span>/s) || html.match(/by (.*?)<\/div>/);
-      if (pubMatch) metadata.publisher = pubMatch[1].trim().replace(/<[^>]*>?/gm, '');
+      const pubMatch = html.match(/itemprop="author".*?>(.*?)<\/a>/s) ||
+                       html.match(/itemprop="author".*?>(.*?)<\/span>/s) ||
+                       html.match(/by (.*?)<\/div>/);
+      if (pubMatch) {
+        const cleaned = pubMatch[1].replace(/<[^>]*>?/gm, '').trim();
+        if (cleaned && !cleaned.includes('"') && cleaned.length < 100) {
+          metadata.publisher = cleaned;
+        }
+      }
     } else {
       // Edge Addons
       const ratingMatch = html.match(/aria-label="Average rating ([0-9.]+) out of 5 stars/);
