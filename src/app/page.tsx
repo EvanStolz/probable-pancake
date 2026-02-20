@@ -34,14 +34,25 @@ export default function Home() {
       }
 
       const { id, store } = extracted;
-      const response = await fetch(`/api/proxy?id=${id}&store=${store}`);
-      if (!response.ok) {
-        const errorData = await response.json();
+
+      // Fetch metadata and binary in parallel
+      const [metaRes, binaryRes] = await Promise.all([
+        fetch(`/api/proxy?id=${id}&store=${store}&metadata=true`),
+        fetch(`/api/proxy?id=${id}&store=${store}`)
+      ]);
+
+      if (!binaryRes.ok) {
+        const errorData = await binaryRes.json();
         throw new Error(errorData.error || 'Failed to download extension');
       }
 
-      const blob = await response.blob();
-      const analysisResult = await analyzeExtension(blob);
+      let metadata = null;
+      if (metaRes.ok) {
+        metadata = await metaRes.json();
+      }
+
+      const blob = await binaryRes.blob();
+      const analysisResult = await analyzeExtension(blob, metadata || undefined);
       setResult(analysisResult);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred during analysis');

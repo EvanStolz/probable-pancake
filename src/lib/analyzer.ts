@@ -12,9 +12,18 @@ export interface Vulnerability {
   description: string;
 }
 
+export interface ReputationData {
+  publisher: string;
+  rating: number;
+  ratingCount: number;
+  userCount: string;
+  lastUpdated: string;
+}
+
 export interface AnalysisResult {
   name: string;
   version: string;
+  icon?: string;
   permissions: PermissionInfo[];
   apiCalls: string[];
   secrets: string[];
@@ -22,9 +31,16 @@ export interface AnalysisResult {
   vulnerabilities: Vulnerability[];
   cvssScore: number;
   riskLevel: 'Low' | 'Medium' | 'High' | 'Critical';
+  riskScore: number;
+  riskEquation: string;
+  reputation?: ReputationData;
+  reputationScore?: number;
 }
 
-export async function analyzeExtension(file: File | Blob | ArrayBuffer | Uint8Array): Promise<AnalysisResult> {
+export async function analyzeExtension(
+  file: File | Blob | ArrayBuffer | Uint8Array,
+  externalReputation?: ReputationData
+): Promise<AnalysisResult> {
   let data: ArrayBuffer;
   if (file instanceof File || file instanceof Blob) {
     data = await file.arrayBuffer();
@@ -63,16 +79,43 @@ export async function analyzeExtension(file: File | Blob | ArrayBuffer | Uint8Ar
   const manifestContent = await manifestFile.async('string');
   const manifest = JSON.parse(manifestContent);
 
+  // Resolve localized name
+  let name = manifest.name || 'Unknown';
+  if (name.startsWith('__MSG_')) {
+    name = await resolveLocaleString(zip, manifest, name);
+  }
+
+  // Extract icon
+  let icon: string | undefined;
+  if (manifest.icons) {
+    const iconPath = manifest.icons['48'] || manifest.icons['128'] || manifest.icons['16'];
+    if (iconPath) {
+      const iconFile = zip.file(iconPath);
+      if (iconFile) {
+        const iconData = await iconFile.async('base64');
+        const mimeType = iconPath.endsWith('.png') ? 'image/png' : 'image/jpeg';
+        icon = `data:${mimeType};base64,${iconData}`;
+      }
+    }
+  }
+
   const permissions = analyzePermissions(manifest.permissions || [], manifest.host_permissions || []);
   const { apiCalls, secrets, dependencies } = await analyzeSourceCode(zip);
   const vulnerabilities = detectVulnerabilities(dependencies);
 
-  const cvssScore = calculateCVSS(permissions, apiCalls, vulnerabilities);
+  const { score: cvssScore, equation: riskEquation } = calculateDetailedRisk(permissions, apiCalls, vulnerabilities);
   const riskLevel = getOverallRiskLevel(cvssScore);
+  const riskScore = Math.max(0, Math.round((10 - cvssScore) * 10));
+
+  let reputationScore: number | undefined;
+  if (externalReputation) {
+    reputationScore = calculateReputationScore(externalReputation);
+  }
 
   return {
-    name: manifest.name || 'Unknown',
+    name,
     version: manifest.version || '0.0.0',
+    icon,
     permissions,
     apiCalls,
     secrets,
@@ -80,7 +123,49 @@ export async function analyzeExtension(file: File | Blob | ArrayBuffer | Uint8Ar
     vulnerabilities,
     cvssScore,
     riskLevel,
+    riskScore,
+    riskEquation,
+    reputation: externalReputation,
+    reputationScore,
   };
+}
+
+async function resolveLocaleString(zip: JSZip, manifest: any, key: string): Promise<string> {
+  const messageKey = key.replace('__MSG_', '').replace('__', '');
+  const defaultLocale = manifest.default_locale || 'en';
+
+  // Try default locale first, then look for any locale if not found
+  const locales = [defaultLocale, 'en', 'en_US', 'en_GB'];
+
+  for (const locale of locales) {
+    const localePath = `_locales/${locale}/messages.json`;
+    const localeFile = zip.file(localePath);
+    if (localeFile) {
+      try {
+        const content = await localeFile.async('string');
+        const messages = JSON.parse(content);
+        if (messages[messageKey] && messages[messageKey].message) {
+          return messages[messageKey].message;
+        }
+      } catch (e) {
+        // Ignore parse errors
+      }
+    }
+  }
+
+  // Last ditch effort: search all locales
+  const localeFiles = zip.filter((path) => path.startsWith('_locales/') && path.endsWith('messages.json'));
+  for (const file of localeFiles) {
+    try {
+      const content = await file.async('string');
+      const messages = JSON.parse(content);
+      if (messages[messageKey] && messages[messageKey].message) {
+        return messages[messageKey].message;
+      }
+    } catch (e) {}
+  }
+
+  return key; // Fallback to original key if not found
 }
 
 const PERMISSION_MAPPING: Record<string, { risk: 'Low' | 'Medium' | 'High' | 'Critical', description: string }> = {
@@ -234,31 +319,66 @@ function detectVulnerabilities(dependencies: string[]): Vulnerability[] {
   return Array.from(vulnerabilitiesMap.values());
 }
 
-function calculateCVSS(permissions: PermissionInfo[], apiCalls: string[], vulnerabilities: Vulnerability[]): number {
+function calculateDetailedRisk(permissions: PermissionInfo[], apiCalls: string[], vulnerabilities: Vulnerability[]): { score: number, equation: string } {
+  let permissionScore = 0;
+  permissions.forEach(p => {
+    if (p.risk === 'Critical') permissionScore += 4;
+    if (p.risk === 'High') permissionScore += 2;
+    if (p.risk === 'Medium') permissionScore += 1;
+    if (p.risk === 'Low') permissionScore += 0.2;
+  });
+
+  let apiScore = 0;
+  if (apiCalls.some(a => a.includes('eval'))) apiScore += 2;
+  if (apiCalls.some(a => a.includes('fetch') || a.includes('XMLHttpRequest'))) apiScore += 1;
+  if (apiCalls.some(a => a.includes('chrome.cookies'))) apiScore += 1;
+
+  let vulnerabilityScore = 0;
+  vulnerabilities.forEach(v => {
+    if (v.severity === 'Critical') vulnerabilityScore += 5;
+    if (v.severity === 'High') vulnerabilityScore += 3;
+    if (v.severity === 'Medium') vulnerabilityScore += 1.5;
+    if (v.severity === 'Low') vulnerabilityScore += 0.5;
+  });
+
+  const totalRaw = permissionScore + apiScore + vulnerabilityScore;
+  const score = Math.min(10.0, Math.round(totalRaw * 10) / 10);
+
+  const equation = `Risk Score = 100 - (PermissionScore(${permissionScore.toFixed(1)}) + APIScore(${apiScore.toFixed(1)}) + VulnerabilityScore(${vulnerabilityScore.toFixed(1)})) * 10`;
+
+  return { score, equation };
+}
+
+function calculateReputationScore(reputation: ReputationData): number {
   let score = 0;
 
-  // Permission based scores
-  permissions.forEach(p => {
-    if (p.risk === 'Critical') score += 4;
-    if (p.risk === 'High') score += 2;
-    if (p.risk === 'Medium') score += 1;
-    if (p.risk === 'Low') score += 0.2;
-  });
+  // Rating (0-5 stars) -> max 40 points
+  score += (reputation.rating / 5) * 40;
 
-  // API Call based scores
-  if (apiCalls.some(a => a.includes('eval'))) score += 2;
-  if (apiCalls.some(a => a.includes('fetch') || a.includes('XMLHttpRequest'))) score += 1;
-  if (apiCalls.some(a => a.includes('chrome.cookies'))) score += 1;
+  // User count -> max 40 points
+  // Parse user count like "1,000,000+"
+  const users = parseInt(reputation.userCount.replace(/[^0-9]/g, '')) || 0;
+  if (users > 0) {
+    // Logarithmic scale for users, 1M users = 40 points, 100 users = ~13 points
+    const userPoints = Math.min(40, (Math.log10(users) / 6) * 40);
+    score += userPoints;
+  }
 
-  // Vulnerability based scores
-  vulnerabilities.forEach(v => {
-    if (v.severity === 'Critical') score += 5;
-    if (v.severity === 'High') score += 3;
-    if (v.severity === 'Medium') score += 1.5;
-    if (v.severity === 'Low') score += 0.5;
-  });
+  // Recency/Update frequency -> max 20 points
+  // Simple heuristic: if updated within last year
+  const lastUpdated = new Date(reputation.lastUpdated);
+  if (!isNaN(lastUpdated.getTime())) {
+    const monthsSinceUpdate = (new Date().getTime() - lastUpdated.getTime()) / (1000 * 60 * 60 * 24 * 30);
+    if (monthsSinceUpdate <= 3) score += 20;
+    else if (monthsSinceUpdate <= 6) score += 15;
+    else if (monthsSinceUpdate <= 12) score += 10;
+    else if (monthsSinceUpdate <= 24) score += 5;
+  } else {
+    // If we can't parse the date (e.g. Edge format), give some baseline if it exists
+    if (reputation.lastUpdated) score += 10;
+  }
 
-  return Math.min(10.0, Math.round(score * 10) / 10);
+  return Math.min(100, Math.round(score));
 }
 
 function getOverallRiskLevel(score: number): 'Low' | 'Medium' | 'High' | 'Critical' {
