@@ -10,6 +10,7 @@ export interface Vulnerability {
   id: string;
   severity: 'Low' | 'Medium' | 'High' | 'Critical';
   description: string;
+  score?: number;
 }
 
 export interface ReputationData {
@@ -304,6 +305,7 @@ function detectVulnerabilities(dependencies: string[]): Vulnerability[] {
       vulnerabilitiesMap.set('CVE-2020-11022', {
         id: 'CVE-2020-11022',
         severity: 'Medium',
+        score: 6.1,
         description: 'Regex in jQuery.htmlPrefilter potentially leads to XSS.',
       });
     }
@@ -311,6 +313,7 @@ function detectVulnerabilities(dependencies: string[]): Vulnerability[] {
       vulnerabilitiesMap.set('CVE-2020-8203', {
         id: 'CVE-2020-8203',
         severity: 'High',
+        score: 7.4,
         description: 'Prototype pollution in lodash via merge and zipObjectDeep.',
       });
     }

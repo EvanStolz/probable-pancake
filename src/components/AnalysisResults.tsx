@@ -52,6 +52,32 @@ export default function AnalysisResults({ result }: AnalysisResultsProps) {
     }
   };
 
+  const getRiskLabelColor = (risk: string) => {
+    switch (risk) {
+      case 'Critical': return 'text-purple-600';
+      case 'High': return 'text-red-600';
+      case 'Medium': return 'text-yellow-600';
+      case 'Low': return 'text-green-600';
+      default: return 'text-blue-600';
+    }
+  };
+
+  const getRelativeTime = (dateStr: string) => {
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return null;
+
+    const now = new Date();
+    const diffTime = Math.abs(now.getTime() - date.getTime());
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+    if (diffDays < 1) return 'today';
+    if (diffDays < 30) return `${diffDays} days ago`;
+    const diffMonths = Math.floor(diffDays / 30);
+    if (diffMonths < 12) return `${diffMonths} month${diffMonths > 1 ? 's' : ''} ago`;
+    const diffYears = Math.floor(diffMonths / 12);
+    return `${diffYears} year${diffYears > 1 ? 's' : ''} ago`;
+  };
+
   return (
     <div className="space-y-8">
       <div className="bg-white dark:bg-zinc-900 p-6 rounded-lg shadow-md border-l-4 border-l-blue-500">
@@ -64,14 +90,14 @@ export default function AnalysisResults({ result }: AnalysisResultsProps) {
               <h2 className="text-2xl font-bold mb-1">{result.name}</h2>
               <p className="text-zinc-600 dark:text-zinc-400 text-sm mb-2">Version: {result.version}</p>
               <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${getRiskColor(result.riskLevel)}`}>
-                {result.riskLevel} Risk (CVSS: {result.cvssScore})
+                {result.riskLevel} Risk
               </span>
             </div>
           </div>
 
           <div className="flex gap-8">
             <div className="flex flex-col items-center gap-1">
-              <ScoreGauge score={result.riskScore} label="Security Score" />
+              <ScoreGauge score={result.riskScore} label="Risk Score" />
               <p className="text-[10px] text-zinc-400 font-mono text-center max-w-[120px] leading-tight mt-1">
                 {result.riskEquation}
               </p>
@@ -123,7 +149,14 @@ export default function AnalysisResults({ result }: AnalysisResultsProps) {
               </div>
               <div>
                 <p className="text-xs text-zinc-500 font-medium uppercase tracking-wider">Last Updated</p>
-                <p className="font-semibold text-sm">{result.reputation.lastUpdated}</p>
+                <p className="font-semibold text-sm">
+                  {result.reputation.lastUpdated}
+                  {getRelativeTime(result.reputation.lastUpdated) && (
+                    <span className="block text-[10px] text-zinc-400 font-normal">
+                      ({getRelativeTime(result.reputation.lastUpdated)})
+                    </span>
+                  )}
+                </p>
               </div>
             </div>
           </div>
@@ -137,7 +170,12 @@ export default function AnalysisResults({ result }: AnalysisResultsProps) {
         <div className="grid gap-4">
           {result.permissions.map((p, idx) => (
             <div key={idx} className="bg-zinc-50 dark:bg-zinc-800 p-4 rounded-lg flex items-start gap-4">
-              {getRiskIcon(p.risk)}
+              <div className="flex flex-col items-center gap-1 min-w-[60px]">
+                {getRiskIcon(p.risk)}
+                <span className={`text-[10px] font-bold uppercase ${getRiskLabelColor(p.risk)}`}>
+                  {p.risk}
+                </span>
+              </div>
               <div>
                 <p className="font-mono font-bold">{p.permission}</p>
                 <p className="text-sm text-zinc-600 dark:text-zinc-400">{p.description}</p>
@@ -196,7 +234,9 @@ export default function AnalysisResults({ result }: AnalysisResultsProps) {
                 <div key={idx} className="bg-red-50 dark:bg-red-900/20 p-4 rounded-lg border border-red-200 dark:border-red-800 flex items-start gap-4">
                   {getRiskIcon(v.severity)}
                   <div>
-                    <p className="font-bold text-red-700 dark:text-red-400">{v.id} ({v.severity})</p>
+                    <p className="font-bold text-red-700 dark:text-red-400">
+                      {v.id} ({v.severity}{v.score ? `: ${v.score}` : ''})
+                    </p>
                     <p className="text-sm text-red-600 dark:text-red-300">{v.description}</p>
                   </div>
                 </div>
