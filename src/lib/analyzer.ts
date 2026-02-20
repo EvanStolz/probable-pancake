@@ -19,12 +19,15 @@ export interface ReputationData {
   ratingCount: number;
   userCount: string;
   lastUpdated: string;
+  isFeatured?: boolean;
+  isVerifiedPublisher?: boolean;
 }
 
 export interface AnalysisResult {
   name: string;
   version: string;
   icon?: string;
+  manifestVersion: number;
   permissions: PermissionInfo[];
   apiCalls: string[];
   secrets: string[];
@@ -34,6 +37,8 @@ export interface AnalysisResult {
   riskLevel: 'Low' | 'Medium' | 'High' | 'Critical';
   riskScore: number;
   riskEquation: string;
+  isObfuscated: boolean;
+  obfuscationScore: number;
   reputation?: ReputationData;
   reputationScore?: number;
 }
@@ -101,12 +106,16 @@ export async function analyzeExtension(
   }
 
   const permissions = analyzePermissions(manifest.permissions || [], manifest.host_permissions || []);
-  const { apiCalls, secrets, dependencies } = await analyzeSourceCode(zip);
+  const manifestVersion = manifest.manifest_version || 2;
+  const { apiCalls, secrets, dependencies, isObfuscated, obfuscationScore } = await analyzeSourceCode(zip);
   const vulnerabilities = detectVulnerabilities(dependencies);
 
-  const { score: cvssScore, equation: riskEquation } = calculateDetailedRisk(permissions, apiCalls, vulnerabilities);
-  const riskLevel = getOverallRiskLevel(cvssScore);
-  const riskScore = Math.max(0, Math.round((10 - cvssScore) * 10));
+  const { score: riskScore, equation: riskEquation, level: riskLevel } = calculateDetailedRisk(
+    permissions,
+    vulnerabilities,
+    manifestVersion,
+    obfuscationScore
+  );
 
   let reputationScore: number | undefined;
   if (externalReputation) {
@@ -117,15 +126,18 @@ export async function analyzeExtension(
     name,
     version: manifest.version || '0.0.0',
     icon,
+    manifestVersion,
     permissions,
     apiCalls,
     secrets,
     dependencies,
     vulnerabilities,
-    cvssScore,
+    cvssScore: vulnerabilities.reduce((max, v) => Math.max(max, v.score || 0), 0),
     riskLevel,
     riskScore,
     riskEquation,
+    isObfuscated,
+    obfuscationScore,
     reputation: externalReputation,
     reputationScore,
   };
@@ -226,10 +238,22 @@ function analyzePermissions(permissions: string[], hostPermissions: string[]): P
   });
 }
 
-async function analyzeSourceCode(zip: JSZip): Promise<{ apiCalls: string[], secrets: string[], dependencies: string[] }> {
+async function analyzeSourceCode(zip: JSZip): Promise<{
+  apiCalls: string[];
+  secrets: string[];
+  dependencies: string[];
+  isObfuscated: boolean;
+  obfuscationScore: number;
+}> {
   const apiCallsSet = new Set<string>();
   const secretsSet = new Set<string>();
   const dependenciesSet = new Set<string>();
+
+  let totalEntropy = 0;
+  let jsFileCount = 0;
+  let longLineFiles = 0;
+  let suspiciousIdentifierFiles = 0;
+  let knownObfuscatorFound = false;
 
   const API_PATTERNS = [
     /chrome\.\w+/g,
@@ -267,6 +291,34 @@ async function analyzeSourceCode(zip: JSZip): Promise<{ apiCalls: string[], secr
     if (fileName.endsWith('.js') || fileName.endsWith('.html') || fileName.endsWith('.json')) {
       const content = await zip.files[fileName].async('string');
 
+      if (fileName.endsWith('.js')) {
+        jsFileCount++;
+        // 1. Entropy
+        const entropy = calculateEntropy(content);
+        totalEntropy += entropy;
+
+        // 2. Line Length
+        const lines = content.split('\n');
+        const longLines = lines.filter(l => l.length > 500).length;
+        if (lines.length > 0 && (longLines / lines.length) > 0.1) {
+          longLineFiles++;
+        }
+
+        // 3. Identifier Suspicion
+        const identifiers = content.match(/[a-zA-Z_$][a-zA-Z0-9_$]*/g) || [];
+        if (identifiers.length > 100) {
+          const suspicious = identifiers.filter(id => id.length === 1 || id.match(/^_0x[a-f0-9]+/)).length;
+          if ((suspicious / identifiers.length) > 0.3) {
+            suspiciousIdentifierFiles++;
+          }
+        }
+
+        // 4. Known Obfuscator Signatures
+        if (content.includes('javascript-obfuscator') || content.match(/_0x[a-f0-9]{4,6}\s*=\s*\[/)) {
+          knownObfuscatorFound = true;
+        }
+      }
+
       // API Calls
       API_PATTERNS.forEach(pattern => {
         const matches = content.match(pattern);
@@ -290,11 +342,42 @@ async function analyzeSourceCode(zip: JSZip): Promise<{ apiCalls: string[], secr
     }
   }
 
+  const avgEntropy = jsFileCount > 0 ? totalEntropy / jsFileCount : 0;
+  const highEntropy = avgEntropy > 5.5;
+  const manyLongLines = jsFileCount > 0 && (longLineFiles / jsFileCount) > 0.2;
+  const manySuspiciousIdentifiers = jsFileCount > 0 && (suspiciousIdentifierFiles / jsFileCount) > 0.2;
+
+  let signals = 0;
+  if (highEntropy) signals++;
+  if (manyLongLines) signals++;
+  if (manySuspiciousIdentifiers) signals++;
+
+  const isObfuscated = knownObfuscatorFound || signals >= 2;
+  const obfuscationScore = knownObfuscatorFound ? 10 : signals === 1 ? 5 : signals >= 2 ? 10 : 0;
+
   return {
     apiCalls: Array.from(apiCallsSet),
     secrets: Array.from(secretsSet),
     dependencies: Array.from(dependenciesSet),
+    isObfuscated,
+    obfuscationScore,
   };
+}
+
+export function calculateEntropy(str: string): number {
+  const len = str.length;
+  if (len === 0) return 0;
+  const frequencies: Record<string, number> = {};
+  for (let i = 0; i < len; i++) {
+    const char = str[i];
+    frequencies[char] = (frequencies[char] || 0) + 1;
+  }
+  let entropy = 0;
+  for (const char in frequencies) {
+    const p = frequencies[char] / len;
+    entropy -= p * Math.log2(p);
+  }
+  return entropy;
 }
 
 function detectVulnerabilities(dependencies: string[]): Vulnerability[] {
@@ -322,71 +405,88 @@ function detectVulnerabilities(dependencies: string[]): Vulnerability[] {
   return Array.from(vulnerabilitiesMap.values());
 }
 
-function calculateDetailedRisk(permissions: PermissionInfo[], apiCalls: string[], vulnerabilities: Vulnerability[]): { score: number, equation: string } {
+export function calculateDetailedRisk(
+  permissions: PermissionInfo[],
+  vulnerabilities: Vulnerability[],
+  manifestVersion: number,
+  obfuscationScore: number
+): { score: number; equation: string; level: 'Low' | 'Medium' | 'High' | 'Critical' } {
+  // 1. Permission severity (0–40 pts)
   let permissionScore = 0;
   permissions.forEach(p => {
-    if (p.risk === 'Critical') permissionScore += 4;
-    if (p.risk === 'High') permissionScore += 2;
-    if (p.risk === 'Medium') permissionScore += 1;
-    if (p.risk === 'Low') permissionScore += 0.2;
+    if (p.risk === 'Critical') permissionScore += 10;
+    else if (p.risk === 'High') permissionScore += 5;
+    else if (p.risk === 'Medium') permissionScore += 2;
+    else if (p.risk === 'Low') permissionScore += 0.5;
   });
+  permissionScore = Math.min(40, permissionScore);
 
-  let apiScore = 0;
-  if (apiCalls.some(a => a.includes('eval'))) apiScore += 2;
-  if (apiCalls.some(a => a.includes('fetch') || a.includes('XMLHttpRequest'))) apiScore += 1;
-  if (apiCalls.some(a => a.includes('chrome.cookies'))) apiScore += 1;
+  // 2. CVE count (0–20 pts)
+  const cveCountScore = Math.min(20, vulnerabilities.length * 4);
 
-  let vulnerabilityScore = 0;
+  // 3. CVE severity (CVSS) (0–25 pts)
+  let highestCVSS = 0;
   vulnerabilities.forEach(v => {
-    if (v.severity === 'Critical') vulnerabilityScore += 5;
-    if (v.severity === 'High') vulnerabilityScore += 3;
-    if (v.severity === 'Medium') vulnerabilityScore += 1.5;
-    if (v.severity === 'Low') vulnerabilityScore += 0.5;
+    if (v.score && v.score > highestCVSS) highestCVSS = v.score;
   });
+  const cvssScore = (Math.log10(highestCVSS + 1) / Math.log10(11)) * 25;
 
-  const totalRaw = permissionScore + apiScore + vulnerabilityScore;
-  const score = Math.min(10.0, Math.round(totalRaw * 10) / 10);
+  // 4. Manifest V2 vs V3 (5 pts)
+  const manifestScore = manifestVersion === 2 ? 5 : 0;
 
-  const equation = `Risk Score = 100 - (PermissionScore(${permissionScore.toFixed(1)}) + APIScore(${apiScore.toFixed(1)}) + VulnerabilityScore(${vulnerabilityScore.toFixed(1)})) * 10`;
+  const totalScore = Math.min(100, Math.round(permissionScore + cveCountScore + cvssScore + manifestScore + obfuscationScore));
 
-  return { score, equation };
+  let level: 'Low' | 'Medium' | 'High' | 'Critical' = 'Low';
+  if (totalScore >= 75) level = 'Critical';
+  else if (totalScore >= 50) level = 'High';
+  else if (totalScore >= 25) level = 'Medium';
+
+  const equation = `Risk = Permissions(${permissionScore.toFixed(0)}) + CVEs(${cveCountScore}) + CVSS(${cvssScore.toFixed(0)}) + MV${manifestVersion}(${manifestScore}) + Obf(${obfuscationScore})`;
+
+  return { score: totalScore, equation, level };
 }
 
-function calculateReputationScore(reputation: ReputationData): number {
+export function calculateReputationScore(reputation: ReputationData): number {
   let score = 0;
 
-  // Rating (0-5 stars) -> max 40 points
-  score += (reputation.rating / 5) * 40;
-
-  // User count -> max 40 points
-  // Parse user count like "1,000,000+"
-  const users = parseInt(reputation.userCount.replace(/[^0-9]/g, '')) || 0;
-  if (users > 0) {
-    // Logarithmic scale for users, 1M users = 40 points, 100 users = ~13 points
-    const userPoints = Math.min(40, (Math.log10(users) / 6) * 40);
-    score += userPoints;
+  // 1. Publisher verification (20 pts)
+  if (reputation.isVerifiedPublisher) {
+    score += 20;
   }
 
-  // Recency/Update frequency -> max 20 points
-  // Simple heuristic: if updated within last year
+  // 2. Rating value (20 pts)
+  score += (reputation.rating / 5) * 20;
+
+  // 3. Rating count (15 pts) - Log-scaled: log10(count)/log10(100k) * 15, capped at 15
+  if (reputation.ratingCount > 0) {
+    const ratingCountPoints = (Math.log10(reputation.ratingCount) / 5) * 15; // log10(100k) = 5
+    score += Math.min(15, Math.max(0, ratingCountPoints));
+  }
+
+  // 4. User count (20 pts) - Log-scaled: log10(users)/log10(10M) * 20, capped at 20
+  const users = parseInt(reputation.userCount.replace(/[^0-9]/g, '')) || 0;
+  if (users > 0) {
+    const userPoints = (Math.log10(users) / 7) * 20; // log10(10M) = 7
+    score += Math.min(20, Math.max(0, userPoints));
+  }
+
+  // 5. Last updated recency (15 pts)
   const lastUpdated = new Date(reputation.lastUpdated);
   if (!isNaN(lastUpdated.getTime())) {
     const monthsSinceUpdate = (new Date().getTime() - lastUpdated.getTime()) / (1000 * 60 * 60 * 24 * 30);
-    if (monthsSinceUpdate <= 3) score += 20;
-    else if (monthsSinceUpdate <= 6) score += 15;
-    else if (monthsSinceUpdate <= 12) score += 10;
-    else if (monthsSinceUpdate <= 24) score += 5;
-  } else {
-    // If we can't parse the date (e.g. Edge format), give some baseline if it exists
-    if (reputation.lastUpdated) score += 10;
+    if (monthsSinceUpdate < 6) score += 15;
+    else if (monthsSinceUpdate < 12) score += 10;
+    else if (monthsSinceUpdate < 24) score += 5;
+  } else if (reputation.lastUpdated) {
+    // Fallback if date is present but not parsable by new Date()
+    score += 5;
+  }
+
+  // 6. Store featured/verified badge (10 pts)
+  if (reputation.isFeatured) {
+    score += 10;
   }
 
   return Math.min(100, Math.round(score));
 }
 
-function getOverallRiskLevel(score: number): 'Low' | 'Medium' | 'High' | 'Critical' {
-  if (score >= 9.0) return 'Critical';
-  if (score >= 7.0) return 'High';
-  if (score >= 4.0) return 'Medium';
-  return 'Low';
-}

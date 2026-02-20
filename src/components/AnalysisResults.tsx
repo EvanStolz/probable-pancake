@@ -6,8 +6,15 @@ interface AnalysisResultsProps {
 }
 
 export default function AnalysisResults({ result }: AnalysisResultsProps) {
-  const ScoreGauge = ({ score, label }: { score: number; label: string }) => {
-    const colorClass = score < 30 ? 'text-red-500' : score < 70 ? 'text-yellow-500' : 'text-green-500';
+  const ScoreGauge = ({ score, label, inverse = false }: { score: number; label: string; inverse?: boolean }) => {
+    let colorClass = '';
+    if (inverse) {
+      // Risk Score: Higher is worse
+      colorClass = score >= 75 ? 'text-purple-500' : score >= 50 ? 'text-red-500' : score >= 25 ? 'text-yellow-500' : 'text-green-500';
+    } else {
+      // Reputation Score: Higher is better
+      colorClass = score < 30 ? 'text-red-500' : score < 70 ? 'text-yellow-500' : 'text-green-500';
+    }
     const strokeDasharray = `${(score / 100) * 251.2} 251.2`;
 
     return (
@@ -28,6 +35,7 @@ export default function AnalysisResults({ result }: AnalysisResultsProps) {
           </svg>
         </div>
         <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">{label}</span>
+        {inverse && <span className="text-[8px] text-zinc-400 -mt-1 italic">Lower is safer</span>}
       </div>
     );
   };
@@ -88,7 +96,17 @@ export default function AnalysisResults({ result }: AnalysisResultsProps) {
             )}
             <div>
               <h2 className="text-2xl font-bold mb-1">{result.name}</h2>
-              <p className="text-zinc-600 dark:text-zinc-400 text-sm mb-2">Version: {result.version}</p>
+              <div className="flex flex-wrap gap-2 items-center mb-3">
+                <p className="text-zinc-600 dark:text-zinc-400 text-sm">Version: {result.version}</p>
+                <span className="px-2 py-0.5 bg-zinc-100 dark:bg-zinc-800 rounded text-[10px] font-bold text-zinc-500 uppercase">
+                  Manifest V{result.manifestVersion}
+                </span>
+                {result.isObfuscated && (
+                  <span className="px-2 py-0.5 bg-red-100 dark:bg-red-900/30 rounded text-[10px] font-bold text-red-600 uppercase flex items-center gap-1">
+                    <Code className="w-3 h-3" /> Obfuscated
+                  </span>
+                )}
+              </div>
               <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${getRiskColor(result.riskLevel)}`}>
                 {result.riskLevel} Risk
               </span>
@@ -97,7 +115,7 @@ export default function AnalysisResults({ result }: AnalysisResultsProps) {
 
           <div className="flex gap-8">
             <div className="flex flex-col items-center gap-1">
-              <ScoreGauge score={result.riskScore} label="Risk Score" />
+              <ScoreGauge score={result.riskScore} label="Risk Score" inverse={true} />
               <p className="text-[10px] text-zinc-400 font-mono text-center max-w-[120px] leading-tight mt-1">
                 {result.riskEquation}
               </p>
@@ -144,13 +162,13 @@ export default function AnalysisResults({ result }: AnalysisResultsProps) {
             </div>
 
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
-                <Calendar className="w-5 h-5 text-purple-600" />
+              <div className="p-2 bg-zinc-100 dark:bg-zinc-800 rounded-lg">
+                <Calendar className="w-5 h-5 text-zinc-600" />
               </div>
               <div>
                 <p className="text-xs text-zinc-500 font-medium uppercase tracking-wider">Last Updated</p>
                 <p className="font-semibold text-sm">
-                  {result.reputation.lastUpdated}
+                  {result.reputation.lastUpdated || 'Unknown'}
                   {getRelativeTime(result.reputation.lastUpdated) && (
                     <span className="block text-[10px] text-zinc-400 font-normal">
                       ({getRelativeTime(result.reputation.lastUpdated)})
@@ -159,6 +177,25 @@ export default function AnalysisResults({ result }: AnalysisResultsProps) {
                 </p>
               </div>
             </div>
+
+            {(result.reputation.isFeatured || result.reputation.isVerifiedPublisher) && (
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
+                  <Shield className="w-5 h-5 text-purple-600" />
+                </div>
+                <div>
+                  <p className="text-xs text-zinc-500 font-medium uppercase tracking-wider">Badges</p>
+                  <div className="flex flex-wrap gap-1">
+                    {result.reputation.isFeatured && (
+                      <span className="text-[10px] font-bold text-purple-700 bg-purple-100 px-1 rounded">Featured</span>
+                    )}
+                    {result.reputation.isVerifiedPublisher && (
+                      <span className="text-[10px] font-bold text-blue-700 bg-blue-100 px-1 rounded">Verified</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </section>
       )}
