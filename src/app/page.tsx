@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import { analyzeExtension, AnalysisResult } from '@/lib/analyzer';
-import FileUploader from '@/components/FileUploader';
+import { extractExtensionId } from '@/lib/utils';
+import Uploader from '@/components/Uploader';
 import AnalysisResults from '@/components/AnalysisResults';
 
 export default function Home() {
@@ -10,11 +11,37 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleFileUpload = async (file: File) => {
+  const handleFileUpload = async (file: File | Blob) => {
     setLoading(true);
     setError(null);
     try {
       const analysisResult = await analyzeExtension(file);
+      setResult(analysisResult);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred during analysis');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUrlSubmit = async (url: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const extracted = extractExtensionId(url);
+      if (!extracted) {
+        throw new Error('Unsupported or invalid URL. Please use Chrome Web Store or Microsoft Edge Addons links.');
+      }
+
+      const { id, store } = extracted;
+      const response = await fetch(`/api/proxy?id=${id}&store=${store}`);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to download extension');
+      }
+
+      const blob = await response.blob();
+      const analysisResult = await analyzeExtension(blob);
       setResult(analysisResult);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred during analysis');
@@ -28,7 +55,7 @@ export default function Home() {
       <h1 className="text-4xl font-bold mb-8 text-center">CRX Security Checker</h1>
 
       <div className="bg-white dark:bg-zinc-900 p-6 rounded-lg shadow-md mb-8">
-        <FileUploader onUpload={handleFileUpload} loading={loading} />
+        <Uploader onUpload={handleFileUpload} onUrlSubmit={handleUrlSubmit} loading={loading} />
       </div>
 
       {error && (
