@@ -24,8 +24,36 @@ export interface AnalysisResult {
   riskLevel: 'Low' | 'Medium' | 'High' | 'Critical';
 }
 
-export async function analyzeExtension(file: File | Blob | ArrayBuffer): Promise<AnalysisResult> {
-  const zip = await JSZip.loadAsync(file);
+export async function analyzeExtension(file: File | Blob | ArrayBuffer | Uint8Array): Promise<AnalysisResult> {
+  let data: ArrayBuffer;
+  if (file instanceof File || file instanceof Blob) {
+    data = await file.arrayBuffer();
+  } else if (file instanceof Uint8Array) {
+    data = file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength);
+  } else {
+    data = file;
+  }
+
+  // Handle CRX files (they have a header before the ZIP content)
+  const view = new DataView(data);
+  if (view.byteLength > 4 && view.getUint32(0, true) === 0x34327243) { // 'Cr24'
+    const version = view.getUint32(4, true);
+    let offset = 0;
+    if (version === 2) {
+      const publicKeyLength = view.getUint32(8, true);
+      const signatureLength = view.getUint32(12, true);
+      offset = 16 + publicKeyLength + signatureLength;
+    } else if (version === 3) {
+      const headerLength = view.getUint32(8, true);
+      offset = 12 + headerLength;
+    }
+
+    if (offset > 0 && offset < data.byteLength) {
+      data = data.slice(offset);
+    }
+  }
+
+  const zip = await JSZip.loadAsync(data);
   const manifestFile = zip.file('manifest.json');
 
   if (!manifestFile) {
@@ -184,18 +212,18 @@ async function analyzeSourceCode(zip: JSZip): Promise<{ apiCalls: string[], secr
 }
 
 function detectVulnerabilities(dependencies: string[]): Vulnerability[] {
-  const vulnerabilities: Vulnerability[] = [];
+  const vulnerabilitiesMap = new Map<string, Vulnerability>();
 
   dependencies.forEach(dep => {
     if (dep.toLowerCase().includes('jquery')) {
-      vulnerabilities.push({
+      vulnerabilitiesMap.set('CVE-2020-11022', {
         id: 'CVE-2020-11022',
         severity: 'Medium',
         description: 'Regex in jQuery.htmlPrefilter potentially leads to XSS.',
       });
     }
     if (dep.toLowerCase().includes('lodash')) {
-      vulnerabilities.push({
+      vulnerabilitiesMap.set('CVE-2020-8203', {
         id: 'CVE-2020-8203',
         severity: 'High',
         description: 'Prototype pollution in lodash via merge and zipObjectDeep.',
@@ -203,7 +231,7 @@ function detectVulnerabilities(dependencies: string[]): Vulnerability[] {
     }
   });
 
-  return vulnerabilities;
+  return Array.from(vulnerabilitiesMap.values());
 }
 
 function calculateCVSS(permissions: PermissionInfo[], apiCalls: string[], vulnerabilities: Vulnerability[]): number {
