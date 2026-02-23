@@ -23,6 +23,12 @@ export interface ReputationData {
   isVerifiedPublisher?: boolean;
 }
 
+export interface ObfuscationTrigger {
+  type: string;
+  description: string;
+  files: string[];
+}
+
 export interface AnalysisResult {
   name: string;
   version: string;
@@ -35,10 +41,11 @@ export interface AnalysisResult {
   vulnerabilities: Vulnerability[];
   cvssScore: number;
   riskLevel: 'Low' | 'Medium' | 'High' | 'Critical';
-  riskScore: number;
+  safetyScore: number;
   riskEquation: string;
   isObfuscated: boolean;
   obfuscationScore: number;
+  obfuscationTriggers: ObfuscationTrigger[];
   reputation?: ReputationData;
   reputationScore?: number;
 }
@@ -107,7 +114,7 @@ export async function analyzeExtension(
 
   const permissions = analyzePermissions(manifest.permissions || [], manifest.host_permissions || []);
   const manifestVersion = manifest.manifest_version || 2;
-  const { apiCalls, secrets, dependencies, isObfuscated, obfuscationScore } = await analyzeSourceCode(zip);
+  const { apiCalls, secrets, dependencies, isObfuscated, obfuscationScore, obfuscationTriggers } = await analyzeSourceCode(zip);
   const vulnerabilities = detectVulnerabilities(dependencies);
 
   const { score: riskScore, equation: riskEquation, level: riskLevel } = calculateDetailedRisk(
@@ -116,6 +123,8 @@ export async function analyzeExtension(
     manifestVersion,
     obfuscationScore
   );
+
+  const safetyScore = 100 - riskScore;
 
   let reputationScore: number | undefined;
   if (externalReputation) {
@@ -134,10 +143,11 @@ export async function analyzeExtension(
     vulnerabilities,
     cvssScore: vulnerabilities.reduce((max, v) => Math.max(max, v.score || 0), 0),
     riskLevel,
-    riskScore,
+    safetyScore,
     riskEquation,
     isObfuscated,
     obfuscationScore,
+    obfuscationTriggers,
     reputation: externalReputation,
     reputationScore,
   };
@@ -244,16 +254,19 @@ async function analyzeSourceCode(zip: JSZip): Promise<{
   dependencies: string[];
   isObfuscated: boolean;
   obfuscationScore: number;
+  obfuscationTriggers: ObfuscationTrigger[];
 }> {
   const apiCallsSet = new Set<string>();
   const secretsSet = new Set<string>();
   const dependenciesSet = new Set<string>();
 
+  const highEntropyFiles: string[] = [];
+  const longLineFilesList: string[] = [];
+  const suspiciousIdentifierFilesList: string[] = [];
+  const knownObfuscatorFiles: string[] = [];
+
   let totalEntropy = 0;
   let jsFileCount = 0;
-  let longLineFiles = 0;
-  let suspiciousIdentifierFiles = 0;
-  let knownObfuscatorFound = false;
 
   const API_PATTERNS = [
     /chrome\.\w+/g,
@@ -296,12 +309,15 @@ async function analyzeSourceCode(zip: JSZip): Promise<{
         // 1. Entropy
         const entropy = calculateEntropy(content);
         totalEntropy += entropy;
+        if (entropy > 5.5) {
+          highEntropyFiles.push(fileName);
+        }
 
         // 2. Line Length
         const lines = content.split('\n');
         const longLines = lines.filter(l => l.length > 500).length;
         if (lines.length > 0 && (longLines / lines.length) > 0.1) {
-          longLineFiles++;
+          longLineFilesList.push(fileName);
         }
 
         // 3. Identifier Suspicion
@@ -309,13 +325,13 @@ async function analyzeSourceCode(zip: JSZip): Promise<{
         if (identifiers.length > 100) {
           const suspicious = identifiers.filter(id => id.length === 1 || id.match(/^_0x[a-f0-9]+/)).length;
           if ((suspicious / identifiers.length) > 0.3) {
-            suspiciousIdentifierFiles++;
+            suspiciousIdentifierFilesList.push(fileName);
           }
         }
 
         // 4. Known Obfuscator Signatures
         if (content.includes('javascript-obfuscator') || content.match(/_0x[a-f0-9]{4,6}\s*=\s*\[/)) {
-          knownObfuscatorFound = true;
+          knownObfuscatorFiles.push(fileName);
         }
       }
 
@@ -343,14 +359,46 @@ async function analyzeSourceCode(zip: JSZip): Promise<{
   }
 
   const avgEntropy = jsFileCount > 0 ? totalEntropy / jsFileCount : 0;
-  const highEntropy = avgEntropy > 5.5;
-  const manyLongLines = jsFileCount > 0 && (longLineFiles / jsFileCount) > 0.2;
-  const manySuspiciousIdentifiers = jsFileCount > 0 && (suspiciousIdentifierFiles / jsFileCount) > 0.2;
+  const manyHighEntropy = highEntropyFiles.length > 0 && (highEntropyFiles.length / jsFileCount) > 0.2;
+  const manyLongLines = longLineFilesList.length > 0 && (longLineFilesList.length / jsFileCount) > 0.2;
+  const manySuspiciousIdentifiers = suspiciousIdentifierFilesList.length > 0 && (suspiciousIdentifierFilesList.length / jsFileCount) > 0.2;
+  const knownObfuscatorFound = knownObfuscatorFiles.length > 0;
 
   let signals = 0;
-  if (highEntropy) signals++;
-  if (manyLongLines) signals++;
-  if (manySuspiciousIdentifiers) signals++;
+  const triggers: ObfuscationTrigger[] = [];
+
+  if (knownObfuscatorFound) {
+    triggers.push({
+      type: 'Known Obfuscator',
+      description: 'Signatures of known obfuscation tools (like javascript-obfuscator) were detected.',
+      files: knownObfuscatorFiles
+    });
+  }
+
+  if (manyHighEntropy) {
+    signals++;
+    triggers.push({
+      type: 'High Entropy',
+      description: 'Unusually high information density, typical of compressed or encrypted code.',
+      files: highEntropyFiles
+    });
+  }
+  if (manyLongLines) {
+    signals++;
+    triggers.push({
+      type: 'Long Lines',
+      description: 'Extremely long lines of code, often used to hide malicious logic from manual review.',
+      files: longLineFilesList
+    });
+  }
+  if (manySuspiciousIdentifiers) {
+    signals++;
+    triggers.push({
+      type: 'Suspicious Identifiers',
+      description: 'High frequency of short or hex-encoded variable names.',
+      files: suspiciousIdentifierFilesList
+    });
+  }
 
   const isObfuscated = knownObfuscatorFound || signals >= 2;
   const obfuscationScore = knownObfuscatorFound ? 10 : signals === 1 ? 5 : signals >= 2 ? 10 : 0;
@@ -361,6 +409,7 @@ async function analyzeSourceCode(zip: JSZip): Promise<{
     dependencies: Array.from(dependenciesSet),
     isObfuscated,
     obfuscationScore,
+    obfuscationTriggers: triggers,
   };
 }
 
@@ -441,7 +490,7 @@ export function calculateDetailedRisk(
   else if (totalScore >= 50) level = 'High';
   else if (totalScore >= 25) level = 'Medium';
 
-  const equation = `Risk = Permissions(${permissionScore.toFixed(0)}) + CVEs(${cveCountScore}) + CVSS(${cvssScore.toFixed(0)}) + MV${manifestVersion}(${manifestScore}) + Obf(${obfuscationScore})`;
+  const equation = `Safety = 100 - [Permissions(${permissionScore.toFixed(0)}) + CVEs(${cveCountScore}) + CVSS(${cvssScore.toFixed(0)}) + MV${manifestVersion}(${manifestScore}) + Obf(${obfuscationScore})]`;
 
   return { score: totalScore, equation, level };
 }
