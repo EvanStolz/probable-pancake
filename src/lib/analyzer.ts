@@ -500,7 +500,7 @@ export function calculateDetailedRisk(
   uniqueVulnerabilities.forEach(v => {
     if (v.score && v.score > highestCVSS) highestCVSS = v.score;
   });
-  const cvssScore = (Math.log10(highestCVSS + 1) / Math.log10(11)) * 25;
+  const cvssScore = Math.pow(highestCVSS / 10, 1.5) * 25;
 
   // 4. Manifest V2 vs V3 (5 pts)
   const manifestScore = manifestVersion === 2 ? 5 : 0;

@@ -62,12 +62,12 @@ describe('Scoring Logic', () => {
       ];
       // Permissions: 10
       // CVE Count: 4
-      // CVSS: log10(10.8)/log10(11) * 25 = 1.033 / 1.041 * 25 = 24.8 -> ~25
+      // CVSS: (9.8/10)^1.5 * 25 = 0.98^1.5 * 25 = 24.25
       // MV2: 5
       // Obf: 10
-      // Total: 10 + 4 + 25 + 5 + 10 = 54
+      // Total: 10 + 4 + 24.25 + 5 + 10 = 53.25 -> 53
       const score = calculateDetailedRisk(permissions, vulnerabilities, 2, 10);
-      expect(score.score).toBe(54);
+      expect(score.score).toBe(53);
       expect(score.level).toBe('High');
     });
 
