@@ -72,39 +72,71 @@ async function fetchStoreMetadata(id: string, store: string) {
       ratingCount: 0,
       userCount: '0',
       lastUpdated: '',
+      isFeatured: false,
+      isVerifiedPublisher: false,
     };
 
     if (store === 'chrome') {
-      // Chrome Web Store (Modern)
-      const ratingMatch = html.match(/aria-label="Rated ([0-9.]+) out of 5 stars/) ||
-                          html.match(/aria-label="Average rating ([0-9.]+) out of 5 stars/) ||
-                          html.match(/([0-9.]+) out of 5 stars/);
-      if (ratingMatch) metadata.rating = parseFloat(ratingMatch[1]);
+      // Try to find JSON-LD first for more reliable data
+      const jsonLdMatch = html.match(/<script type="application\/ld\+json">(.*?)<\/script>/s);
+      if (jsonLdMatch) {
+        try {
+          const data = JSON.parse(jsonLdMatch[1]);
+          if (data.aggregateRating) {
+            metadata.rating = parseFloat(data.aggregateRating.ratingValue);
+            metadata.ratingCount = parseInt(data.aggregateRating.ratingCount);
+          }
+          if (data.author) {
+            metadata.publisher = data.author.name;
+          }
+        } catch (e) {}
+      }
 
-      const ratingCountMatch = html.match(/([0-9,.]+) ratings/) ||
-                               html.match(/([0-9,.]+) reviews/);
-      if (ratingCountMatch) metadata.ratingCount = parseInt(ratingCountMatch[1].replace(/,/g, ''));
+      // Fallback/Supplement with regex
+      if (metadata.rating === 0) {
+        const ratingMatch = html.match(/aria-label="Rated ([0-9.]+) out of 5 stars/) ||
+                            html.match(/aria-label="([0-9.]+) out of 5 stars/) ||
+                            html.match(/aria-label="Average rating ([0-9.]+) out of 5 stars/) ||
+                            html.match(/([0-9.]+) out of 5 stars/);
+        if (ratingMatch) metadata.rating = parseFloat(ratingMatch[1]);
+      }
+
+      if (metadata.ratingCount === 0) {
+        const ratingCountMatch = html.match(/([0-9,.]+) ratings/) ||
+                                 html.match(/([0-9,.]+) reviews/) ||
+                                 html.match(/([0-9,.]+) ratings/);
+        if (ratingCountMatch) metadata.ratingCount = parseInt(ratingCountMatch[1].replace(/,/g, ''));
+      }
 
       const userCountMatch = html.match(/([0-9,.]+)\+? users/) ||
                              html.match(/([0-9,.]+)\+? weekly active users/);
       if (userCountMatch) metadata.userCount = userCountMatch[1] + '+';
 
-      const dateMatch = html.match(/Updated\s+([A-Za-z]+ [0-9]+, [0-9]{4})/) ||
+      const dateMatch = html.match(/Updated.*?([A-Za-z]+ [0-9]+, [0-9]{4})/s) ||
                         html.match(/Updated:?\s*([A-Za-z]+ [0-9]+, [0-9]{4})/);
       if (dateMatch) metadata.lastUpdated = dateMatch[1];
 
-      const pubMatch = html.match(/itemprop="author".*?>(.*?)<\/a>/s) ||
-                       html.match(/itemprop="author".*?>(.*?)<\/span>/s) ||
-                       html.match(/by (.*?)<\/div>/);
-      if (pubMatch) {
-        const cleaned = pubMatch[1].replace(/<[^>]*>?/gm, '').trim();
-        if (cleaned && !cleaned.includes('"') && cleaned.length < 100) {
-          metadata.publisher = cleaned;
+      if (!metadata.publisher) {
+        const pubMatch = html.match(/itemprop="author".*?>(.*?)<\/a>/s) ||
+                         html.match(/itemprop="author".*?>(.*?)<\/span>/s) ||
+                         html.match(/Offered by.*?>(.*?)<\/a>/s) ||
+                         html.match(/Offered by.*?<div>(.*?)<\/div>/s) ||
+                         html.match(/by (.*?)<\/div>/);
+        if (pubMatch) {
+          const cleaned = pubMatch[1].replace(/<[^>]*>?/gm, '').trim();
+          if (cleaned && !cleaned.includes('"') && cleaned.length < 100) {
+            metadata.publisher = cleaned;
+          }
         }
       }
+
+      // Badge detection
+      metadata.isFeatured = html.includes('Featured') || html.includes('Follows recommended practices');
+      metadata.isVerifiedPublisher = html.includes('Established publisher');
     } else {
       // Edge Addons
-      const ratingMatch = html.match(/aria-label="Average rating ([0-9.]+) out of 5 stars/);
+      const ratingMatch = html.match(/aria-label="Average rating ([0-9.]+) out of 5 stars/) ||
+                          html.match(/([0-9.]+) out of 5 stars/);
       if (ratingMatch) metadata.rating = parseFloat(ratingMatch[1]);
 
       const ratingCountMatch = html.match(/([0-9,.]+) users rated/);
@@ -113,11 +145,16 @@ async function fetchStoreMetadata(id: string, store: string) {
       const userCountMatch = html.match(/([0-9,.]+)\+? users/);
       if (userCountMatch) metadata.userCount = userCountMatch[1] + '+';
 
-      const dateMatch = html.match(/Updated: ([A-Za-z]+ [0-9]+, [0-9]{4})/) || html.match(/Last updated: (.*?)</);
+      const dateMatch = html.match(/Updated: ([A-Za-z]+ [0-9]+, [0-9]{4})/) ||
+                        html.match(/Last updated: (.*?)</) ||
+                        html.match(/Updated\s+([A-Za-z]+ [0-9]+, [0-9]{4})/);
       if (dateMatch) metadata.lastUpdated = dateMatch[1];
 
       const pubMatch = html.match(/itemprop="author".*?>(.*?)<\/div>/s) || html.match(/By (.*?)<\/div>/);
       if (pubMatch) metadata.publisher = pubMatch[1].trim().replace(/<[^>]*>?/gm, '');
+
+      metadata.isFeatured = html.includes('Featured') || html.includes('Editors\' pick');
+      metadata.isVerifiedPublisher = html.includes('Verified') || html.includes('Official');
     }
 
     return metadata;

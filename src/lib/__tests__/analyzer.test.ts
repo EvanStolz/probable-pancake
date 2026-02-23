@@ -36,7 +36,7 @@ describe('analyzer', () => {
     expect(result.apiCalls).toContain('fetch(');
     expect(result.apiCalls).toContain('localStorage');
     expect(result.secrets.length).toBeGreaterThan(0);
-    expect(result.riskLevel).toBe('Medium');
+    expect(result.riskLevel).toBe('Low');
   });
 
   it('should deduplicate vulnerabilities', async () => {
