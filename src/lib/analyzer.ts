@@ -518,57 +518,46 @@ export function calculateDetailedRisk(
 }
 
 export function calculateReputationScore(reputation: ReputationData): { score: number; breakdown: ReputationBreakdown; equation: string } {
-  let publisher = 0;
   let rating = 0;
   let ratingCount = 0;
   let usersScore = 0;
   let updated = 0;
-  let badges = 0;
 
-  // 1. Publisher verification (20 pts)
-  if (reputation.isVerifiedPublisher) {
-    publisher = 20;
-  }
+  // 1. Rating value (30 pts)
+  rating = (reputation.rating / 5) * 30;
 
-  // 2. Rating value (20 pts)
-  rating = (reputation.rating / 5) * 20;
-
-  // 3. Rating count (15 pts) - Log-scaled: log10(count)/log10(100k) * 15, capped at 15
+  // 2. Rating count (20 pts) - Log-scaled: log10(count)/log10(100k) * 20, capped at 20
   if (reputation.ratingCount > 0) {
-    const ratingCountPoints = (Math.log10(reputation.ratingCount) / 5) * 15; // log10(100k) = 5
-    ratingCount = Math.min(15, Math.max(0, ratingCountPoints));
+    const ratingCountPoints = (Math.log10(reputation.ratingCount) / 5) * 20; // log10(100k) = 5
+    ratingCount = Math.min(20, Math.max(0, ratingCountPoints));
   }
 
-  // 4. User count (20 pts) - Log-scaled: log10(users)/log10(10M) * 20, capped at 20
+  // 3. User count (30 pts) - Log-scaled: log10(users)/log10(10M) * 30, capped at 30
   const users = parseInt(reputation.userCount.replace(/[^0-9]/g, '')) || 0;
   if (users > 0) {
-    const userPoints = (Math.log10(users) / 7) * 20; // log10(10M) = 7
-    usersScore = Math.min(20, Math.max(0, userPoints));
+    const userPoints = (Math.log10(users) / 7) * 30; // log10(10M) = 7
+    usersScore = Math.min(30, Math.max(0, userPoints));
   }
 
-  // 5. Last updated recency (15 pts)
+  // 4. Last updated recency (20 pts)
   const lastUpdated = new Date(reputation.lastUpdated);
   if (!isNaN(lastUpdated.getTime())) {
     const monthsSinceUpdate = (new Date().getTime() - lastUpdated.getTime()) / (1000 * 60 * 60 * 24 * 30);
-    if (monthsSinceUpdate < 6) updated = 15;
-    else if (monthsSinceUpdate < 12) updated = 10;
-    else if (monthsSinceUpdate < 24) updated = 5;
+    if (monthsSinceUpdate < 6) updated = 20;
+    else if (monthsSinceUpdate < 12) updated = 15;
+    else if (monthsSinceUpdate < 24) updated = 10;
+    else if (monthsSinceUpdate < 48) updated = 5;
   } else if (reputation.lastUpdated) {
     // Fallback if date is present but not parsable by new Date()
     updated = 5;
   }
 
-  // 6. Store featured/verified badge (10 pts)
-  if (reputation.isFeatured) {
-    badges = 10;
-  }
-
-  const score = Math.min(100, Math.round(publisher + rating + ratingCount + usersScore + updated + badges));
-  const equation = `Reputation = Publisher(${publisher.toFixed(0)}) + Rating(${rating.toFixed(0)}) + RatingCount(${ratingCount.toFixed(0)}) + Users(${usersScore.toFixed(0)}) + Updated(${updated.toFixed(0)}) + Badges(${badges.toFixed(0)})`;
+  const score = Math.min(100, Math.round(rating + ratingCount + usersScore + updated));
+  const equation = `Reputation = Rating(${rating.toFixed(0)}) + RatingCount(${ratingCount.toFixed(0)}) + Users(${usersScore.toFixed(0)}) + Updated(${updated.toFixed(0)})`;
 
   return {
     score,
-    breakdown: { publisher, rating, ratingCount, users: usersScore, updated, badges },
+    breakdown: { publisher: 0, rating, ratingCount, users: usersScore, updated, badges: 0 },
     equation
   };
 }

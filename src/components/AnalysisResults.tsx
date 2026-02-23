@@ -144,12 +144,10 @@ export default function AnalysisResults({ result }: AnalysisResultsProps) {
                   <p className="font-bold mb-1 text-blue-400">Reputation Score Calculation</p>
                   <p className="font-mono mb-2 border-b border-zinc-700 pb-2">{result.reputationEquation}</p>
                   <div className="grid grid-cols-2 gap-x-4 gap-y-1 opacity-80">
-                    <p>Verified: 20 pts</p>
-                    <p>Rating: Max 20 pts</p>
-                    <p>Rating Count: Max 15 pts</p>
-                    <p>User Count: Max 20 pts</p>
-                    <p>Recency: Max 15 pts</p>
-                    <p>Featured: 10 pts</p>
+                    <p>Rating: Max 30 pts</p>
+                    <p>Rating Count: Max 20 pts</p>
+                    <p>User Count: Max 30 pts</p>
+                    <p>Recency: Max 20 pts</p>
                   </div>
                 </div>
               </div>
@@ -208,25 +206,6 @@ export default function AnalysisResults({ result }: AnalysisResultsProps) {
                 </p>
               </div>
             </div>
-
-            {(result.reputation.isFeatured || result.reputation.isVerifiedPublisher) && (
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
-                  <Shield className="w-5 h-5 text-purple-600" />
-                </div>
-                <div>
-                  <p className="text-xs text-zinc-500 font-medium uppercase tracking-wider">Badges</p>
-                  <div className="flex flex-wrap gap-1">
-                    {result.reputation.isFeatured && (
-                      <span className="text-[10px] font-bold text-purple-700 bg-purple-100 px-1 rounded">Featured</span>
-                    )}
-                    {result.reputation.isVerifiedPublisher && (
-                      <span className="text-[10px] font-bold text-blue-700 bg-blue-100 px-1 rounded">Verified</span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
         </section>
       )}

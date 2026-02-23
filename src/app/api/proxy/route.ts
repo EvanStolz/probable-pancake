@@ -135,17 +135,22 @@ async function fetchStoreMetadata(id: string, store: string) {
       metadata.isVerifiedPublisher = html.includes('Established publisher');
     } else {
       // Edge Addons
-      const ratingMatch = html.match(/aria-label="Average rating ([0-9.]+) out of 5 stars/) ||
+      const ratingMatch = html.match(/itemprop="ratingValue" content="([0-9.]+)"/) ||
+                          html.match(/aria-label="Average rating ([0-9.]+) out of 5 stars/) ||
                           html.match(/([0-9.]+) out of 5 stars/);
       if (ratingMatch) metadata.rating = parseFloat(ratingMatch[1]);
 
-      const ratingCountMatch = html.match(/([0-9,.]+) users rated/) ||
+      const ratingCountMatch = html.match(/itemprop="ratingCount" content="([0-9,.]+)"/) ||
+                               html.match(/([0-9,.]+) users rated/) ||
                                html.match(/aria-label="Average rating [0-9.]+ out of 5 stars, ([0-9,.]+) ratings/) ||
                                html.match(/([0-9,.]+)\s+ratings/);
       if (ratingCountMatch) metadata.ratingCount = parseInt(ratingCountMatch[1].replace(/,/g, ''));
 
-      const userCountMatch = html.match(/([0-9,.]+)\+?\s+users/i);
-      if (userCountMatch) metadata.userCount = userCountMatch[1] + '+';
+      const userCountMatch = html.match(/itemProp="userInteractionCount" content="([0-9,.]+)"/) ||
+                             html.match(/([0-9,.]+)\+?\s+users/i);
+      if (userCountMatch) {
+        metadata.userCount = parseInt(userCountMatch[1].replace(/,/g, '')).toLocaleString() + '+';
+      }
 
       const dateMatch = html.match(/Updated: ([A-Za-z]+ [0-9]+, [0-9]{4})/) ||
                         html.match(/Last updated: (.*?)</) ||
@@ -160,6 +165,19 @@ async function fetchStoreMetadata(id: string, store: string) {
         const cleaned = pubMatch[1].trim().replace(/<[^>]*>?/gm, '');
         if (cleaned && cleaned.length < 100) {
           metadata.publisher = cleaned;
+        }
+      }
+
+      // Fallback for publisher from title if not found elsewhere
+      if (!metadata.publisher) {
+        const titleMatch = html.match(/<title>(.*?) - Microsoft Edge Addons<\/title>/i);
+        if (titleMatch) {
+          const titleContent = titleMatch[1];
+          if (titleContent.includes(':')) {
+            metadata.publisher = titleContent.split(':')[0].trim();
+          } else {
+            metadata.publisher = titleContent.trim();
+          }
         }
       }
 

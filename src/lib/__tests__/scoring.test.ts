@@ -35,14 +35,14 @@ describe('Scoring Logic', () => {
         const rep1 = {
           publisher: 'Dev',
           rating: 4,
-          ratingCount: 100, // log10(100) = 2. (2/5)*15 = 6
-          userCount: '1,000', // log10(1000) = 3. (3/7)*20 = 8.57
-          lastUpdated: new Date().toISOString(), // 15 pts
+          ratingCount: 100, // log10(100) = 2. (2/5)*20 = 8
+          userCount: '1,000', // log10(1000) = 3. (3/7)*30 = 12.86
+          lastUpdated: new Date().toISOString(), // 20 pts
           isFeatured: false,
           isVerifiedPublisher: false,
         };
-        // 0 (pub) + 16 (rating) + 6 (ratingCount) + 8.57 (users) + 15 (updated) + 0 (featured) = 45.57 -> 46
-        expect(calculateReputationScore(rep1).score).toBe(46);
+        // 24 (rating) + 8 (ratingCount) + 12.86 (users) + 20 (updated) = 64.86 -> 65
+        expect(calculateReputationScore(rep1).score).toBe(65);
     });
   });
 
