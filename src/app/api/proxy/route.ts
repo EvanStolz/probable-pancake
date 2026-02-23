@@ -152,10 +152,10 @@ async function fetchStoreMetadata(id: string, store: string) {
         metadata.userCount = parseInt(userCountMatch[1].replace(/,/g, '')).toLocaleString() + '+';
       }
 
-      const dateMatch = html.match(/Updated: ([A-Za-z]+ [0-9]+, [0-9]{4})/) ||
-                        html.match(/Last updated: (.*?)</) ||
-                        html.match(/Updated\s+([A-Za-z]+ [0-9]+, [0-9]{4})/);
-      if (dateMatch) metadata.lastUpdated = dateMatch[1];
+      const dateMatch = html.match(/(?:>|\s|^)Updated:?\s*(?:<\/?[^>]+>\s*)*([^<>\n]{5,30})/i) ||
+                        html.match(/Last updated:?\s*(?:<\/?[^>]+>\s*)*([^<>\n]{5,30})/i) ||
+                        html.match(/Updated.*?([A-Za-z]+ [0-9]{1,2}, [0-9]{4})/s);
+      if (dateMatch) metadata.lastUpdated = dateMatch[1].trim();
 
       const pubMatch = html.match(/itemprop="author".*?>(.*?)<\/div>/s) ||
                        html.match(/By (.*?)<\/div>/) ||
