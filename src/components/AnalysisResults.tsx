@@ -364,15 +364,18 @@ export default function AnalysisResults({ result }: AnalysisResultsProps) {
 
           <div>
             <h4 className="text-sm font-bold uppercase tracking-wider text-zinc-500 mb-3">Detected Secrets</h4>
-            <ul className="bg-zinc-50 dark:bg-zinc-800 p-4 rounded-lg space-y-2">
-              {result.secrets.length > 0 ? (
-                result.secrets.map((secret, idx) => (
-                  <li key={idx} className="font-mono text-sm text-red-500">{secret}</li>
-                ))
-              ) : (
-                <p className="text-zinc-500 italic text-sm">No secrets detected</p>
+            <ExpandableSection
+              items={result.secrets}
+              emptyMessage={<p className="text-zinc-500 italic text-sm p-4 bg-zinc-50 dark:bg-zinc-800 rounded-lg">No secrets detected</p>}
+            >
+              {(items) => (
+                <ul className="bg-zinc-50 dark:bg-zinc-800 p-4 rounded-lg space-y-2">
+                  {items.map((secret, idx) => (
+                    <li key={idx} className="font-mono text-sm text-red-500 truncate" title={secret}>{secret}</li>
+                  ))}
+                </ul>
               )}
-            </ul>
+            </ExpandableSection>
           </div>
         </div>
       </section>
