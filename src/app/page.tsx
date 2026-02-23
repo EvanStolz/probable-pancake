@@ -33,27 +33,48 @@ export default function Home() {
         throw new Error('Unsupported or invalid URL. Please use Chrome Web Store or Microsoft Edge Addons links.');
       }
 
-      const { id, store } = extracted;
+      const { id, store, isRawId } = extracted;
 
-      // Fetch metadata and binary in parallel
-      const [metaRes, binaryRes] = await Promise.all([
-        fetch(`/api/proxy?id=${id}&store=${store}&metadata=true`),
-        fetch(`/api/proxy?id=${id}&store=${store}`)
-      ]);
+      const performAnalysis = async (targetId: string, targetStore: 'chrome' | 'edge') => {
+        // Fetch metadata and binary in parallel
+        const [metaRes, binaryRes] = await Promise.all([
+          fetch(`/api/proxy?id=${targetId}&store=${targetStore}&metadata=true`),
+          fetch(`/api/proxy?id=${targetId}&store=${targetStore}`)
+        ]);
 
-      if (!binaryRes.ok) {
-        const errorData = await binaryRes.json();
-        throw new Error(errorData.error || 'Failed to download extension');
+        if (!binaryRes.ok) {
+          const errorData = await binaryRes.json();
+          throw new Error(errorData.error || 'Failed to download extension');
+        }
+
+        let metadata = null;
+        if (metaRes.ok) {
+          metadata = await metaRes.json();
+        }
+
+        const blob = await binaryRes.blob();
+        if (blob.size === 0) {
+          throw new Error('Extension download returned no content');
+        }
+        return await analyzeExtension(blob, metadata || undefined);
+      };
+
+      try {
+        const analysisResult = await performAnalysis(id, store);
+        setResult(analysisResult);
+      } catch (err) {
+        if (isRawId) {
+          const alternateStore = store === 'edge' ? 'chrome' : 'edge';
+          try {
+            const analysisResult = await performAnalysis(id, alternateStore);
+            setResult(analysisResult);
+          } catch (secondErr) {
+            throw err; // Throw the original error if both fail
+          }
+        } else {
+          throw err;
+        }
       }
-
-      let metadata = null;
-      if (metaRes.ok) {
-        metadata = await metaRes.json();
-      }
-
-      const blob = await binaryRes.blob();
-      const analysisResult = await analyzeExtension(blob, metadata || undefined);
-      setResult(analysisResult);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred during analysis');
     } finally {

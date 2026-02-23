@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
 
   let downloadUrl = '';
   if (store === 'chrome') {
-    downloadUrl = `https://clients2.google.com/service/update2/crx?response=redirect&prodversion=114.0&acceptformat=crx2,crx3&x=id%3D${id}%26installsource%3Dondemand%26uc`;
+    downloadUrl = `https://clients2.google.com/service/update2/crx?response=redirect&prodversion=130.0&acceptformat=crx2,crx3&x=id%3D${id}%26installsource%3Dondemand%26uc`;
   } else if (store === 'edge') {
     downloadUrl = `https://edge.microsoft.com/extensionwebstorebase/v1/crx?response=redirect&prod=edgecrx&x=id%3D${id}%26installsource%3Dondemand%26uc`;
   } else {
@@ -139,10 +139,12 @@ async function fetchStoreMetadata(id: string, store: string) {
                           html.match(/([0-9.]+) out of 5 stars/);
       if (ratingMatch) metadata.rating = parseFloat(ratingMatch[1]);
 
-      const ratingCountMatch = html.match(/([0-9,.]+) users rated/);
+      const ratingCountMatch = html.match(/([0-9,.]+) users rated/) ||
+                               html.match(/aria-label="Average rating [0-9.]+ out of 5 stars, ([0-9,.]+) ratings/) ||
+                               html.match(/([0-9,.]+)\s+ratings/);
       if (ratingCountMatch) metadata.ratingCount = parseInt(ratingCountMatch[1].replace(/,/g, ''));
 
-      const userCountMatch = html.match(/([0-9,.]+)\+? users/);
+      const userCountMatch = html.match(/([0-9,.]+)\+?\s+users/i);
       if (userCountMatch) metadata.userCount = userCountMatch[1] + '+';
 
       const dateMatch = html.match(/Updated: ([A-Za-z]+ [0-9]+, [0-9]{4})/) ||
@@ -150,8 +152,16 @@ async function fetchStoreMetadata(id: string, store: string) {
                         html.match(/Updated\s+([A-Za-z]+ [0-9]+, [0-9]{4})/);
       if (dateMatch) metadata.lastUpdated = dateMatch[1];
 
-      const pubMatch = html.match(/itemprop="author".*?>(.*?)<\/div>/s) || html.match(/By (.*?)<\/div>/);
-      if (pubMatch) metadata.publisher = pubMatch[1].trim().replace(/<[^>]*>?/gm, '');
+      const pubMatch = html.match(/itemprop="author".*?>(.*?)<\/div>/s) ||
+                       html.match(/By (.*?)<\/div>/) ||
+                       html.match(/Extension\s*\|\s*([^<|]+)/i) ||
+                       html.match(/Offered by\s*(.*?)<\/div>/i);
+      if (pubMatch) {
+        const cleaned = pubMatch[1].trim().replace(/<[^>]*>?/gm, '');
+        if (cleaned && cleaned.length < 100) {
+          metadata.publisher = cleaned;
+        }
+      }
 
       metadata.isFeatured = html.includes('Featured') || html.includes('Editors\' pick');
       metadata.isVerifiedPublisher = html.includes('Verified') || html.includes('Official');
