@@ -24,4 +24,10 @@ describe('extractExtensionId', () => {
     expect(extractExtensionId('https://google.com')).toBeNull();
     expect(extractExtensionId('https://chromewebstore.google.com/detail/google-translate/too-short')).toBeNull();
   });
+
+  it('should extract ID from raw string and default to Edge', () => {
+    const id = 'pnmchffiealhkdloeffcdnbgdnedheme';
+    const result = extractExtensionId(id);
+    expect(result).toEqual({ id: 'pnmchffiealhkdloeffcdnbgdnedheme', store: 'edge' });
+  });
 });

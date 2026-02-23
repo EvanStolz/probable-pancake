@@ -1,4 +1,11 @@
 export function extractExtensionId(url: string): { id: string; store: 'chrome' | 'edge' } | null {
+  const trimmed = url.trim();
+
+  // If it's a 32-character ID, default to Edge as requested
+  if (/^[a-z0-9]{32}$/i.test(trimmed)) {
+    return { id: trimmed.toLowerCase(), store: 'edge' };
+  }
+
   if (url.includes('chrome.google.com/webstore') || url.includes('chromewebstore.google.com')) {
     const match = url.match(/\/([a-p]{32})/i);
     if (match) {

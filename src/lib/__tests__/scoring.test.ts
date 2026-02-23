@@ -13,8 +13,8 @@ describe('Scoring Logic', () => {
         isFeatured: true,
         isVerifiedPublisher: true,
       };
-      const score = calculateReputationScore(reputation);
-      expect(score).toBe(100);
+      const result = calculateReputationScore(reputation);
+      expect(result.score).toBe(100);
     });
 
     it('should calculate zero score for new unknown extension', () => {
@@ -27,8 +27,8 @@ describe('Scoring Logic', () => {
         isFeatured: false,
         isVerifiedPublisher: false,
       };
-      const score = calculateReputationScore(reputation);
-      expect(score).toBe(0);
+      const result = calculateReputationScore(reputation);
+      expect(result.score).toBe(0);
     });
 
     it('should handle log scaling correctly for ratings and users', () => {
@@ -42,7 +42,7 @@ describe('Scoring Logic', () => {
           isVerifiedPublisher: false,
         };
         // 0 (pub) + 16 (rating) + 6 (ratingCount) + 8.57 (users) + 15 (updated) + 0 (featured) = 45.57 -> 46
-        expect(calculateReputationScore(rep1)).toBe(46);
+        expect(calculateReputationScore(rep1).score).toBe(46);
     });
   });
 
@@ -75,6 +75,17 @@ describe('Scoring Logic', () => {
         const permissions = Array(10).fill({ permission: 'p', risk: 'Critical', description: '' });
         const score = calculateDetailedRisk(permissions, [], 3, 0);
         expect(score.score).toBe(40);
+    });
+
+    it('should deduplicate CVEs in risk calculation', () => {
+      const permissions = [];
+      const vulnerabilities = [
+        { id: 'CVE-1', severity: 'Medium', score: 5, description: '' } as any,
+        { id: 'CVE-1', severity: 'Medium', score: 5, description: '' } as any
+      ];
+      // Should be 1 CVE * 4 = 4 points, not 8.
+      const result = calculateDetailedRisk(permissions, vulnerabilities, 3, 0);
+      expect(result.equation).toContain('CVEs(4)');
     });
   });
 

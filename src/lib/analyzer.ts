@@ -23,6 +23,15 @@ export interface ReputationData {
   isVerifiedPublisher?: boolean;
 }
 
+export interface ReputationBreakdown {
+  publisher: number;
+  rating: number;
+  ratingCount: number;
+  users: number;
+  updated: number;
+  badges: number;
+}
+
 export interface ObfuscationTrigger {
   type: string;
   description: string;
@@ -48,6 +57,8 @@ export interface AnalysisResult {
   obfuscationTriggers: ObfuscationTrigger[];
   reputation?: ReputationData;
   reputationScore?: number;
+  reputationBreakdown?: ReputationBreakdown;
+  reputationEquation?: string;
 }
 
 export async function analyzeExtension(
@@ -127,8 +138,14 @@ export async function analyzeExtension(
   const safetyScore = 100 - riskScore;
 
   let reputationScore: number | undefined;
+  let reputationBreakdown: ReputationBreakdown | undefined;
+  let reputationEquation: string | undefined;
+
   if (externalReputation) {
-    reputationScore = calculateReputationScore(externalReputation);
+    const repResult = calculateReputationScore(externalReputation);
+    reputationScore = repResult.score;
+    reputationBreakdown = repResult.breakdown;
+    reputationEquation = repResult.equation;
   }
 
   return {
@@ -150,6 +167,8 @@ export async function analyzeExtension(
     obfuscationTriggers,
     reputation: externalReputation,
     reputationScore,
+    reputationBreakdown,
+    reputationEquation,
   };
 }
 
@@ -460,6 +479,9 @@ export function calculateDetailedRisk(
   manifestVersion: number,
   obfuscationScore: number
 ): { score: number; equation: string; level: 'Low' | 'Medium' | 'High' | 'Critical' } {
+  // Explicitly deduplicate vulnerabilities by ID to ensure correct scoring
+  const uniqueVulnerabilities = Array.from(new Map(vulnerabilities.map(v => [v.id, v])).values());
+
   // 1. Permission severity (0–40 pts)
   let permissionScore = 0;
   permissions.forEach(p => {
@@ -471,11 +493,11 @@ export function calculateDetailedRisk(
   permissionScore = Math.min(40, permissionScore);
 
   // 2. CVE count (0–20 pts)
-  const cveCountScore = Math.min(20, vulnerabilities.length * 4);
+  const cveCountScore = Math.min(20, uniqueVulnerabilities.length * 4);
 
   // 3. CVE severity (CVSS) (0–25 pts)
   let highestCVSS = 0;
-  vulnerabilities.forEach(v => {
+  uniqueVulnerabilities.forEach(v => {
     if (v.score && v.score > highestCVSS) highestCVSS = v.score;
   });
   const cvssScore = (Math.log10(highestCVSS + 1) / Math.log10(11)) * 25;
@@ -495,47 +517,59 @@ export function calculateDetailedRisk(
   return { score: totalScore, equation, level };
 }
 
-export function calculateReputationScore(reputation: ReputationData): number {
-  let score = 0;
+export function calculateReputationScore(reputation: ReputationData): { score: number; breakdown: ReputationBreakdown; equation: string } {
+  let publisher = 0;
+  let rating = 0;
+  let ratingCount = 0;
+  let usersScore = 0;
+  let updated = 0;
+  let badges = 0;
 
   // 1. Publisher verification (20 pts)
   if (reputation.isVerifiedPublisher) {
-    score += 20;
+    publisher = 20;
   }
 
   // 2. Rating value (20 pts)
-  score += (reputation.rating / 5) * 20;
+  rating = (reputation.rating / 5) * 20;
 
   // 3. Rating count (15 pts) - Log-scaled: log10(count)/log10(100k) * 15, capped at 15
   if (reputation.ratingCount > 0) {
     const ratingCountPoints = (Math.log10(reputation.ratingCount) / 5) * 15; // log10(100k) = 5
-    score += Math.min(15, Math.max(0, ratingCountPoints));
+    ratingCount = Math.min(15, Math.max(0, ratingCountPoints));
   }
 
   // 4. User count (20 pts) - Log-scaled: log10(users)/log10(10M) * 20, capped at 20
   const users = parseInt(reputation.userCount.replace(/[^0-9]/g, '')) || 0;
   if (users > 0) {
     const userPoints = (Math.log10(users) / 7) * 20; // log10(10M) = 7
-    score += Math.min(20, Math.max(0, userPoints));
+    usersScore = Math.min(20, Math.max(0, userPoints));
   }
 
   // 5. Last updated recency (15 pts)
   const lastUpdated = new Date(reputation.lastUpdated);
   if (!isNaN(lastUpdated.getTime())) {
     const monthsSinceUpdate = (new Date().getTime() - lastUpdated.getTime()) / (1000 * 60 * 60 * 24 * 30);
-    if (monthsSinceUpdate < 6) score += 15;
-    else if (monthsSinceUpdate < 12) score += 10;
-    else if (monthsSinceUpdate < 24) score += 5;
+    if (monthsSinceUpdate < 6) updated = 15;
+    else if (monthsSinceUpdate < 12) updated = 10;
+    else if (monthsSinceUpdate < 24) updated = 5;
   } else if (reputation.lastUpdated) {
     // Fallback if date is present but not parsable by new Date()
-    score += 5;
+    updated = 5;
   }
 
   // 6. Store featured/verified badge (10 pts)
   if (reputation.isFeatured) {
-    score += 10;
+    badges = 10;
   }
 
-  return Math.min(100, Math.round(score));
+  const score = Math.min(100, Math.round(publisher + rating + ratingCount + usersScore + updated + badges));
+  const equation = `Reputation = Publisher(${publisher.toFixed(0)}) + Rating(${rating.toFixed(0)}) + RatingCount(${ratingCount.toFixed(0)}) + Users(${usersScore.toFixed(0)}) + Updated(${updated.toFixed(0)}) + Badges(${badges.toFixed(0)})`;
+
+  return {
+    score,
+    breakdown: { publisher, rating, ratingCount, users: usersScore, updated, badges },
+    equation
+  };
 }
 

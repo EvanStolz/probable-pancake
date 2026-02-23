@@ -6,7 +6,7 @@ interface AnalysisResultsProps {
 }
 
 export default function AnalysisResults({ result }: AnalysisResultsProps) {
-  const ScoreGauge = ({ score, label }: { score: number; label: string }) => {
+  const ScoreGauge = ({ score, label, showInfo = false }: { score: number; label: string; showInfo?: boolean }) => {
     let colorClass = '';
     // For both Safety and Reputation: Higher is better
     // 0-25: Red (Critical)
@@ -37,7 +37,10 @@ export default function AnalysisResults({ result }: AnalysisResultsProps) {
             </text>
           </svg>
         </div>
-        <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">{label}</span>
+        <div className="flex items-center gap-1">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">{label}</span>
+          {showInfo && <Info className="w-3 h-3 text-zinc-400" />}
+        </div>
         <span className="text-[8px] text-zinc-400 -mt-1 italic">Higher is safer</span>
       </div>
     );
@@ -117,14 +120,39 @@ export default function AnalysisResults({ result }: AnalysisResultsProps) {
           </div>
 
           <div className="flex gap-8">
-            <div className="flex flex-col items-center gap-1">
-              <ScoreGauge score={result.safetyScore} label="Safety Score" />
-              <p className="text-[10px] text-zinc-400 font-mono text-center max-w-[120px] leading-tight mt-1">
-                {result.riskEquation}
-              </p>
+            <div className="flex flex-col items-center gap-1 group relative">
+              <ScoreGauge score={result.safetyScore} label="Safety Score" showInfo={true} />
+
+              <div className="absolute z-20 hidden group-hover:block bg-zinc-800 text-white p-3 rounded-lg text-[10px] w-64 top-full left-1/2 -translate-x-1/2 mt-2 shadow-xl border border-zinc-700 pointer-events-none">
+                <p className="font-bold mb-1 text-blue-400">Safety Score Calculation</p>
+                <p className="font-mono mb-2 border-b border-zinc-700 pb-2">{result.riskEquation}</p>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1 opacity-80">
+                  <p>Permissions: Max 40</p>
+                  <p>CVEs: 4 pts each (Max 20)</p>
+                  <p>CVSS: Max 25</p>
+                  <p>MV2 Penalty: 5 pts</p>
+                  <p>Obfuscation: Max 10</p>
+                </div>
+              </div>
             </div>
+
             {result.reputationScore !== undefined && (
-              <ScoreGauge score={result.reputationScore} label="Reputation Score" />
+              <div className="flex flex-col items-center gap-1 group relative">
+                <ScoreGauge score={result.reputationScore} label="Reputation Score" showInfo={true} />
+
+                <div className="absolute z-20 hidden group-hover:block bg-zinc-800 text-white p-3 rounded-lg text-[10px] w-64 top-full left-1/2 -translate-x-1/2 mt-2 shadow-xl border border-zinc-700 pointer-events-none">
+                  <p className="font-bold mb-1 text-blue-400">Reputation Score Calculation</p>
+                  <p className="font-mono mb-2 border-b border-zinc-700 pb-2">{result.reputationEquation}</p>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 opacity-80">
+                    <p>Verified: 20 pts</p>
+                    <p>Rating: Max 20 pts</p>
+                    <p>Rating Count: Max 15 pts</p>
+                    <p>User Count: Max 20 pts</p>
+                    <p>Recency: Max 15 pts</p>
+                    <p>Featured: 10 pts</p>
+                  </div>
+                </div>
+              </div>
             )}
           </div>
         </div>
