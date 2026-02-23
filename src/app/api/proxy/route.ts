@@ -112,8 +112,8 @@ async function fetchStoreMetadata(id: string, store: string) {
                              html.match(/([0-9,.]+)\+? weekly active users/);
       if (userCountMatch) metadata.userCount = userCountMatch[1] + '+';
 
-      const dateMatch = html.match(/Updated.*?([A-Za-z]+ [0-9]+, [0-9]{4})/s) ||
-                        html.match(/Updated:?\s*([A-Za-z]+ [0-9]+, [0-9]{4})/);
+      const dateMatch = html.match(/(?:Updated|Last updated).*?([A-Za-z]+ [0-9]+, [0-9]{4})/si) ||
+                        html.match(/(?:Updated|Last updated):?\s*([A-Za-z]+ [0-9]+, [0-9]{4})/i);
       if (dateMatch) metadata.lastUpdated = dateMatch[1];
 
       if (!metadata.publisher) {
@@ -152,8 +152,8 @@ async function fetchStoreMetadata(id: string, store: string) {
         metadata.userCount = parseInt(userCountMatch[1].replace(/,/g, '')).toLocaleString() + '+';
       }
 
-      const dateMatch = html.match(/(?:>|\s|^)Updated:?\s*(?:<\/?[^>]+>\s*)*([^<>\n]{5,30})/i) ||
-                        html.match(/Last updated:?\s*(?:<\/?[^>]+>\s*)*([^<>\n]{5,30})/i) ||
+      const dateMatch = html.match(/(?:Updated|Last updated):?\s*(?:<\/?[^>]+>\s*)*([A-Za-z]+ \d{1,2}, \d{4})/i) ||
+                        html.match(/(?:Updated|Last updated):?\s*(?:<\/?[^>]+>\s*)*([^<>\n]{5,30})/i) ||
                         html.match(/Updated.*?([A-Za-z]+ [0-9]{1,2}, [0-9]{4})/s);
       if (dateMatch) metadata.lastUpdated = dateMatch[1].trim();
 
