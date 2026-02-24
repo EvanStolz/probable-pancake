@@ -2,15 +2,15 @@ import { describe, it, expect } from 'vitest';
 
 // Minimal mock of the scraper logic to test regexes as implemented in src/app/api/proxy/route.ts
 function testChromeRegex(html: string) {
-    const dateMatch = html.match(/(?:Updated|Last updated).*?([A-Za-z]+ [0-9]+, [0-9]{4})/si) ||
-                      html.match(/(?:Updated|Last updated):?\s*([A-Za-z]+ [0-9]+, [0-9]{4})/i);
+    const dateMatch = html.match(/\b(?:Updated|Last updated)\b.*?([A-Za-z]+ [0-9]+, [0-9]{4})/si) ||
+                      html.match(/\b(?:Updated|Last updated)\b:?\s*([A-Za-z]+ [0-9]+, [0-9]{4})/i);
     return dateMatch ? dateMatch[1] : '';
 }
 
 function testEdgeRegex(html: string) {
-    const dateMatch = html.match(/(?:Updated|Last updated):?\s*(?:<\/?[^>]+>\s*)*([A-Za-z]+ \d{1,2}, \d{4})/i) ||
-                      html.match(/(?:Updated|Last updated):?\s*(?:<\/?[^>]+>\s*)*([^<>\n]{5,30})/i) ||
-                      html.match(/Updated.*?([A-Za-z]+ [0-9]{1,2}, [0-9]{4})/s);
+    const dateMatch = html.match(/\b(?:Updated|Last updated)\b:?\s*(?:<\/?[^>]+>\s*)*([A-Za-z]+ \d{1,2}, \d{4})/i) ||
+                      html.match(/\b(?:Updated|Last updated)\b:?\s*(?:<\/?[^>]+>\s*)*([^<>\n]{5,30})/i) ||
+                      html.match(/\bUpdated\b.*?([A-Za-z]+ [0-9]{1,2}, [0-9]{4})/s);
     return dateMatch ? dateMatch[1].trim() : '';
 }
 
