@@ -238,8 +238,9 @@ const PERMISSION_MAPPING: Record<string, { risk: 'Low' | 'Medium' | 'High' | 'Cr
   '<all_urls>': { risk: 'Critical', description: 'Full access to all websites the user visits.' },
 };
 
-function analyzePermissions(permissions: string[], hostPermissions: string[]): PermissionInfo[] {
+export function analyzePermissions(permissions: string[], hostPermissions: string[]): PermissionInfo[] {
   const allPermissions = [...new Set([...permissions, ...hostPermissions])];
+  const RISK_ORDER = { 'Critical': 0, 'High': 1, 'Medium': 2, 'Low': 3 };
 
   return allPermissions.map(p => {
     if (PERMISSION_MAPPING[p]) {
@@ -264,6 +265,10 @@ function analyzePermissions(permissions: string[], hostPermissions: string[]): P
       risk: 'Low',
       description: 'Standard extension permission.',
     };
+  }).sort((a, b) => {
+    const riskDiff = RISK_ORDER[a.risk] - RISK_ORDER[b.risk];
+    if (riskDiff !== 0) return riskDiff;
+    return a.permission.localeCompare(b.permission);
   });
 }
 
@@ -448,7 +453,7 @@ export function calculateEntropy(str: string): number {
   return entropy;
 }
 
-function detectVulnerabilities(dependencies: string[]): Vulnerability[] {
+export function detectVulnerabilities(dependencies: string[]): Vulnerability[] {
   const vulnerabilitiesMap = new Map<string, Vulnerability>();
 
   dependencies.forEach(dep => {
@@ -470,7 +475,14 @@ function detectVulnerabilities(dependencies: string[]): Vulnerability[] {
     }
   });
 
-  return Array.from(vulnerabilitiesMap.values());
+  return Array.from(vulnerabilitiesMap.values()).sort((a, b) => {
+    if (a.score !== undefined && b.score !== undefined) {
+      return b.score - a.score;
+    }
+    if (a.score !== undefined) return -1;
+    if (b.score !== undefined) return 1;
+    return a.id.localeCompare(b.id);
+  });
 }
 
 export function calculateDetailedRisk(
