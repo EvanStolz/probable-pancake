@@ -183,6 +183,35 @@ async function fetchStoreMetadata(id: string, store: string) {
 
       metadata.isFeatured = html.includes('Featured') || html.includes('Editors\' pick');
       metadata.isVerifiedPublisher = html.includes('Verified') || html.includes('Official');
+
+      // Fallback for Last Updated via CRX header if not found in HTML
+      if (!metadata.lastUpdated && store === 'edge') {
+        try {
+          const catalogUrl = `https://edge.microsoft.com/extensionwebstorebase/v1/crx?x=id%3D${id}%26v%3D0.0.0.0%26installsource%3Dondemand%26uc`;
+          const catRes = await fetch(catalogUrl);
+          if (catRes.ok) {
+            const xml = await catRes.text();
+            const codebaseMatch = xml.match(/codebase="([^"]+)"/);
+            if (codebaseMatch) {
+              const codebase = codebaseMatch[1].replace(/&amp;/g, '&');
+              const headRes = await fetch(codebase, { method: 'HEAD' });
+              const lastMod = headRes.headers.get('last-modified');
+              if (lastMod) {
+                const date = new Date(lastMod);
+                if (!isNaN(date.getTime())) {
+                  metadata.lastUpdated = date.toLocaleDateString('en-US', {
+                    month: 'long',
+                    day: 'numeric',
+                    year: 'numeric'
+                  });
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.error('Edge CRX date fallback error:', e);
+        }
+      }
     }
 
     return metadata;
