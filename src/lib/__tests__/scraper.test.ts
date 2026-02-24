@@ -14,6 +14,15 @@ function testEdgeRegex(html: string) {
     return dateMatch ? dateMatch[1].trim() : '';
 }
 
+function testEdgePublisherFallback(html: string) {
+    const titleMatch = html.match(/<title>(.*?) - Microsoft Edge Addons<\/title>/i);
+    if (titleMatch) {
+        const titleContent = titleMatch[1];
+        return titleContent.includes(':') ? titleContent.split(':')[0].trim() : titleContent.trim();
+    }
+    return '';
+}
+
 describe('Scraper Regex Tests', () => {
     describe('Chrome Scraper', () => {
         it('should match Chrome date with dotall', () => {
@@ -56,6 +65,16 @@ describe('Scraper Regex Tests', () => {
         it('should handle Edge date with extra whitespace', () => {
             const html = 'Updated:    November   18,   2024';
             expect(testEdgeRegex(html)).toBe('November   18,   2024');
+        });
+
+        it('should extract publisher from Edge title tag', () => {
+            const html = '<title>Dark Reader - Microsoft Edge Addons</title>';
+            expect(testEdgePublisherFallback(html)).toBe('Dark Reader');
+        });
+
+        it('should extract publisher from Edge title tag with colon', () => {
+            const html = '<title>uBlock Origin: An efficient blocker - Microsoft Edge Addons</title>';
+            expect(testEdgePublisherFallback(html)).toBe('uBlock Origin');
         });
     });
 });
