@@ -174,10 +174,10 @@ export default function AnalysisResults({ result }: AnalysisResultsProps) {
                   <p className="font-bold mb-1 text-blue-400">Reputation Score Calculation</p>
                   <p className="font-mono mb-2 border-b border-zinc-700 pb-2">{result.reputationEquation}</p>
                   <div className="grid grid-cols-2 gap-x-4 gap-y-1 opacity-80">
-                    <p>Rating: Max 30 pts</p>
+                    <p>Rating: Max 20 pts</p>
                     <p>Rating Count: Max 20 pts</p>
                     <p>User Count: Max 30 pts</p>
-                    <p>Recency: Max 20 pts</p>
+                    <p>Recency: Max 30 pts</p>
                   </div>
                 </div>
               </div>
