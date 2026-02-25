@@ -535,30 +535,46 @@ export function calculateReputationScore(reputation: ReputationData): { score: n
   let usersScore = 0;
   let updated = 0;
 
-  // 1. Rating value (30 pts)
-  rating = (reputation.rating / 5) * 30;
+  const users = parseInt(reputation.userCount.replace(/[^0-9]/g, '')) || 0;
 
-  // 2. Rating count (20 pts) - Log-scaled: log10(count)/log10(100k) * 20, capped at 20
+  // 1. Rating value (20 pts)
   if (reputation.ratingCount > 0) {
-    const ratingCountPoints = (Math.log10(reputation.ratingCount) / 5) * 20; // log10(100k) = 5
-    ratingCount = Math.min(20, Math.max(0, ratingCountPoints));
+    rating = (reputation.rating / 5) * 20;
+  }
+
+  // 2. Rating count (20 pts)
+  // Base score: Log-scaled: log10(count)/log10(100k) * 20, capped at 20
+  if (reputation.ratingCount > 0) {
+    let ratingCountPoints = (Math.log10(reputation.ratingCount) / 5) * 20; // log10(100k) = 5
+    ratingCountPoints = Math.min(20, Math.max(0, ratingCountPoints));
+
+    // Ratio-based penalty: If suspiciously low or high compared to users
+    if (users > 100) {
+      const ratio = reputation.ratingCount / users;
+      // Typical healthy ratio is between 0.05% and 5%.
+      // We penalize if < 0.01% or > 10%
+      if (ratio < 0.0001 || ratio > 0.1) {
+        ratingCountPoints *= 0.5; // 50% penalty
+      }
+    }
+    ratingCount = ratingCountPoints;
   }
 
   // 3. User count (30 pts) - Log-scaled: log10(users)/log10(10M) * 30, capped at 30
-  const users = parseInt(reputation.userCount.replace(/[^0-9]/g, '')) || 0;
   if (users > 0) {
     const userPoints = (Math.log10(users) / 7) * 30; // log10(10M) = 7
     usersScore = Math.min(30, Math.max(0, userPoints));
   }
 
-  // 4. Last updated recency (20 pts)
+  // 4. Last updated recency (30 pts)
   const lastUpdated = new Date(reputation.lastUpdated);
   if (!isNaN(lastUpdated.getTime())) {
     const monthsSinceUpdate = (new Date().getTime() - lastUpdated.getTime()) / (1000 * 60 * 60 * 24 * 30);
-    if (monthsSinceUpdate < 6) updated = 20;
-    else if (monthsSinceUpdate < 12) updated = 15;
-    else if (monthsSinceUpdate < 24) updated = 10;
-    else if (monthsSinceUpdate < 48) updated = 5;
+    if (monthsSinceUpdate < 3) updated = 30;
+    else if (monthsSinceUpdate < 6) updated = 20;
+    else if (monthsSinceUpdate < 12) updated = 10;
+    else if (monthsSinceUpdate < 18) updated = 5;
+    else updated = 0;
   } else if (reputation.lastUpdated) {
     // Fallback if date is present but not parsable by new Date()
     updated = 5;

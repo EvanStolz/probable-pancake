@@ -36,13 +36,92 @@ describe('Scoring Logic', () => {
           publisher: 'Dev',
           rating: 4,
           ratingCount: 100, // log10(100) = 2. (2/5)*20 = 8
-          userCount: '1,000', // log10(1000) = 3. (3/7)*30 = 12.86
-          lastUpdated: new Date().toISOString(), // 20 pts
+          userCount: '1,000', // log10(1000) = 3. (3/7)*30 = 12.857...
+          lastUpdated: new Date().toISOString(), // 30 pts
           isFeatured: false,
           isVerifiedPublisher: false,
         };
-        // 24 (rating) + 8 (ratingCount) + 12.86 (users) + 20 (updated) = 64.86 -> 65
-        expect(calculateReputationScore(rep1).score).toBe(65);
+        // 16 (rating) + 8 (ratingCount) + 12.86 (users) + 30 (updated) = 66.86 -> 67
+        expect(calculateReputationScore(rep1).score).toBe(67);
+    });
+
+    it('should penalize suspiciously low rating count for high user count', () => {
+      const rep = {
+        publisher: 'Suspicious',
+        rating: 5,
+        ratingCount: 50, // log10(50) = 1.698 -> (1.698/5)*20 = 6.79
+        userCount: '1,000,000', // log10(1M) = 6 -> (6/7)*30 = 25.71
+        lastUpdated: new Date().toISOString(), // 30 pts
+        isFeatured: false,
+        isVerifiedPublisher: false,
+      };
+      // Ratio = 50 / 1M = 0.00005 (< 0.0001)
+      // ratingCount = 6.79 * 0.5 = 3.4
+      // Total = 20 + 3.4 + 25.71 + 30 = 79.11 -> 79
+      expect(calculateReputationScore(rep).score).toBe(79);
+    });
+
+    it('should penalize suspiciously high rating count for user count', () => {
+      const rep = {
+        publisher: 'Bot Farm?',
+        rating: 5,
+        ratingCount: 200, // log10(200) = 2.30 -> (2.3/5)*20 = 9.2
+        userCount: '1,000', // log10(1000) = 3 -> (3/7)*30 = 12.86
+        lastUpdated: new Date().toISOString(), // 30 pts
+        isFeatured: false,
+        isVerifiedPublisher: false,
+      };
+      // Ratio = 200 / 1000 = 0.2 (> 0.1)
+      // ratingCount = 9.2 * 0.5 = 4.6
+      // Total = 20 + 4.6 + 12.86 + 30 = 67.46 -> 67
+      expect(calculateReputationScore(rep).score).toBe(67);
+    });
+
+    it('should not penalize high ratio for low user counts', () => {
+      const rep = {
+        publisher: 'Small Dev',
+        rating: 5,
+        ratingCount: 10, // log10(10) = 1 -> (1/5)*20 = 4
+        userCount: '50', // log10(50) = 1.7 -> (1.7/7)*30 = 7.28
+        lastUpdated: new Date().toISOString(), // 30 pts
+        isFeatured: false,
+        isVerifiedPublisher: false,
+      };
+      // Ratio = 10 / 50 = 0.2 (> 0.1), but users < 100
+      // ratingCount = 4 (no penalty)
+      // Total = 20 + 4 + 7.28 + 30 = 61.28 -> 61
+      expect(calculateReputationScore(rep).score).toBe(61);
+    });
+
+    it('should handle zero ratings correctly', () => {
+      const rep = {
+        publisher: 'No Ratings',
+        rating: 5, // Should be ignored because ratingCount is 0
+        ratingCount: 0,
+        userCount: '10,000', // log10(10k) = 4 -> (4/7)*30 = 17.14
+        lastUpdated: new Date().toISOString(), // 30 pts
+        isFeatured: false,
+        isVerifiedPublisher: false,
+      };
+      // rating = 0, ratingCount = 0
+      // Total = 0 + 0 + 17.14 + 30 = 47.14 -> 47
+      expect(calculateReputationScore(rep).score).toBe(47);
+    });
+
+    it('should give 0 points for updates older than 18 months', () => {
+      const longAgo = new Date();
+      longAgo.setMonth(longAgo.getMonth() - 19);
+      const rep = {
+        publisher: 'Old Dev',
+        rating: 5,
+        ratingCount: 1000,
+        userCount: '10,000',
+        lastUpdated: longAgo.toISOString(),
+        isFeatured: false,
+        isVerifiedPublisher: false,
+      };
+      const result = calculateReputationScore(rep);
+      expect(result.breakdown.updated).toBe(0);
     });
   });
 
